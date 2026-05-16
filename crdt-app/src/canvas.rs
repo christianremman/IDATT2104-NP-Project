@@ -164,6 +164,15 @@ impl CanvasDocument {
         self.users.value()
     }
 
+    /// Remove a cursor entry for a browser session that has disconnected.
+    ///
+    /// Increments the clock so the removal is visible as a new document
+    /// version and propagates to other peers as a non-empty delta.
+    pub fn remove_cursor_entry(&mut self, user: &Uuid, node_id: NodeId) {
+        self.clock.increment(node_id);
+        self.cursors.remove(user);
+    }
+
     /// Add `color` to the shared palette using ORSet add-wins semantics.
     pub fn add_palette_color(&mut self, color: Rgba, node_id: &NodeId) {
         let seq = self.clock.increment(*node_id);
@@ -258,12 +267,6 @@ impl Crdt for CanvasDocument {
 
         self.palette.merge(other.palette);
         self.paint_counts.merge(other.paint_counts);
-
-        // Evict cursor entries for peers no longer in the active set.
-        // The cursor HashMap has no tombstone mechanism, so without this a
-        // departed peer's cursor persists on remote nodes indefinitely.
-        let active = self.users.value();
-        self.cursors.retain(|uid, _| active.contains(uid));
     }
 
     /// Returns `true` when `self` is causally dominated by `other` across all fields.
@@ -409,9 +412,6 @@ impl DeltaCrdt for CanvasDocument {
 
         self.palette.merge_delta(delta.palette);
         self.paint_counts.merge_delta(delta.paint_counts);
-
-        let active = self.users.value();
-        self.cursors.retain(|uid, _| active.contains(uid));
     }
 
     fn is_empty_delta(delta: &Self::Delta) -> bool {
@@ -492,17 +492,14 @@ impl From<&CanvasDocument> for CanvasView {
                     pixels: n,
                 })
                 .collect(),
-            cursors: {
-                let active = doc.active_users();
-                doc.cursors
-                    .iter()
-                    .filter(|(uid, _)| active.contains(*uid))
-                    .map(|(uid, reg)| {
-                        let (x, y) = reg.value();
-                        (uid.to_string(), [x, y])
-                    })
-                    .collect()
-            },
+            cursors: doc
+                .cursors
+                .iter()
+                .map(|(uid, reg)| {
+                    let (x, y) = reg.value();
+                    (uid.to_string(), [x, y])
+                })
+                .collect(),
         }
     }
 }
@@ -834,6 +831,32 @@ mod tests {
     /// `version_includes` powers the partition-heal drop in the gossip
     /// engine: a delta is only safe to apply when the receiver's state
     /// already knows everything the sender's `since` baseline asserts.
+    #[test]
+    fn remove_cursor_entry_removes_cursor_and_produces_delta() {
+        let user = Uuid::from_u128(42);
+        let mut d = CanvasDocument::new();
+        d.update_cursor(user, 5, 10, node(1));
+        assert!(d.cursors.contains_key(&user));
+
+        let version_before = d.version();
+        d.remove_cursor_entry(&user, node(1));
+
+        assert!(!d.cursors.contains_key(&user));
+        // Clock must advance so the removal is visible as a non-empty delta.
+        let delta = d.delta_since(&version_before);
+        assert!(!CanvasDocument::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn remove_cursor_entry_is_noop_when_absent() {
+        let mut d = CanvasDocument::new();
+        let version_before = d.version();
+        d.remove_cursor_entry(&Uuid::from_u128(99), node(1));
+        // Clock still advances even if cursor wasn't present (same as remove_user).
+        let delta = d.delta_since(&version_before);
+        assert!(!CanvasDocument::is_empty_delta(&delta));
+    }
+
     #[test]
     fn version_includes_detects_lagging_receiver() {
         let mut sender = CanvasDocument::new();

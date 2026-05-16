@@ -144,11 +144,6 @@ export const useCanvasStore = defineStore('canvas', {
       if (data.leaderboard !== undefined) {
         this.leaderboard = data.leaderboard
       }
-      if (data.active_peers !== undefined) {
-        for (const userId of this.cursors.keys()) {
-          if (!this.activePeers.has(userId)) this.cursors.delete(userId)
-        }
-      }
       if (data.cursors !== undefined) {
         for (const [userId, pos] of Object.entries(data.cursors)) {
           this.cursors.set(userId, { x: pos[0], y: pos[1] })

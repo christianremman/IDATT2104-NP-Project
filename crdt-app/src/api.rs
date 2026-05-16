@@ -255,22 +255,38 @@ async fn ws_handler(
 
 /// Per-client WebSocket session.
 ///
-/// Registers the user, sends a full snapshot, streams deltas until the
-/// client disconnects, then cleans up.
+/// On first browser connection to this node, registers the backend node_id in
+/// the users ORSet so `active_peers` reflects gossip-level node identity. On
+/// the last disconnect, removes it. Each browser session's cursor is cleaned up
+/// individually on disconnect regardless of session count.
 async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: Uuid) {
-    state.mutate(|doc, id| doc.add_user(user_id, &id));
- 
+    if state.register_ws_client() {
+        state.mutate(|doc, id| doc.add_user(id, &id));
+    }
+
     let last_seen = match send_snapshot(&mut socket, &state).await {
         Some(version) => version,
         None => {
-            state.mutate(|doc, id| { doc.remove_user(&user_id, id); });
+            let was_last = state.deregister_ws_client();
+            state.mutate(|doc, id| {
+                doc.remove_cursor_entry(&user_id, id);
+                if was_last {
+                    doc.remove_user(&id, id);
+                }
+            });
             return;
         }
     };
- 
+
     stream_deltas(&mut socket, &state, last_seen).await;
- 
-    state.mutate(|doc, id| { doc.remove_user(&user_id, id); });
+
+    let was_last = state.deregister_ws_client();
+    state.mutate(|doc, id| {
+        doc.remove_cursor_entry(&user_id, id);
+        if was_last {
+            doc.remove_user(&id, id);
+        }
+    });
 }
 
  

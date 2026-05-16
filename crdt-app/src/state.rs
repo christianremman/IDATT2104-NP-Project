@@ -32,6 +32,7 @@ use crate::canvas::CanvasDocument;
 use crdt_core::Crdt;
 use crdt_net::GossipEngine;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -63,7 +64,9 @@ pub struct AppState {
     /// without runtime locking overhead after initialization.
     /// It is only at start we need the lock, hence OnceLock
     engine: OnceLock<Arc<GossipEngine>>,
-
+    /// Count of active WebSocket browser sessions. Used to add this node
+    /// to the users ORSet on the first connection and remove it on the last.
+    ws_session_count: AtomicUsize,
 }
 
 impl AppState {
@@ -73,8 +76,23 @@ impl AppState {
             node_id,
             canvas: tx,
             engine: OnceLock::new(),
+            ws_session_count: AtomicUsize::new(0),
         });
         (state, rx)
+    }
+
+    /// Increment the WebSocket session count. Returns `true` when this is the
+    /// first browser session (0 → 1), signalling that the backend node should
+    /// be added to the users ORSet.
+    pub fn register_ws_client(&self) -> bool {
+        self.ws_session_count.fetch_add(1, Ordering::Relaxed) == 0
+    }
+
+    /// Decrement the WebSocket session count. Returns `true` when this was the
+    /// last browser session (1 → 0), signalling that the backend node should
+    /// be removed from the users ORSet.
+    pub fn deregister_ws_client(&self) -> bool {
+        self.ws_session_count.fetch_sub(1, Ordering::Relaxed) == 1
     }
 
     pub fn node_id(&self) -> Uuid {
@@ -237,5 +255,37 @@ mod tests {
         let (state, _rx) = make();
         // Must not panic when engine not yet wired in.
         state.add_bootstrap("127.0.0.1:9090".parse().unwrap());
+    }
+
+    #[test]
+    fn register_ws_client_returns_true_on_first_call() {
+        let (state, _rx) = make();
+        assert!(state.register_ws_client());
+    }
+
+    #[test]
+    fn register_ws_client_returns_false_on_subsequent_calls() {
+        let (state, _rx) = make();
+        state.register_ws_client();
+        assert!(!state.register_ws_client());
+        assert!(!state.register_ws_client());
+    }
+
+    #[test]
+    fn deregister_ws_client_returns_true_only_on_last_disconnect() {
+        let (state, _rx) = make();
+        state.register_ws_client();
+        state.register_ws_client();
+        assert!(!state.deregister_ws_client());
+        assert!(state.deregister_ws_client());
+    }
+
+    #[test]
+    fn single_register_deregister_round_trips() {
+        let (state, _rx) = make();
+        assert!(state.register_ws_client());
+        assert!(state.deregister_ws_client());
+        // After full round-trip, next register starts fresh.
+        assert!(state.register_ws_client());
     }
 }
