@@ -31,6 +31,7 @@
 use crate::canvas::CanvasDocument;
 use crdt_core::Crdt;
 use crdt_net::GossipEngine;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -114,6 +115,36 @@ impl AppState {
         let _ = self.engine.set(engine);
     }
  
+    /// Remove any active users whose UUIDs appear in `tombstones`.
+    ///
+    /// Bridges the gossip engine's peer registry (which tracks departed nodes)
+    /// with the `CanvasDocument.users` ORSet (which drives `active_peers` in
+    /// the frontend). Called periodically by a reconcile task in `main.rs` so
+    /// that both graceful Goodbye departures and crash/timeout evictions are
+    /// reflected in the CRDT state without modifying `crdt-net`.
+    ///
+    /// No-op — and no document mutation — when the intersection is empty.
+    pub fn remove_departed_users(&self, tombstones: &HashSet<Uuid>) {
+        if tombstones.is_empty() {
+            return;
+        }
+        let to_remove: Vec<Uuid> = {
+            let doc = self.canvas.borrow();
+            doc.active_users()
+                .intersection(tombstones)
+                .copied()
+                .collect()
+        };
+        if to_remove.is_empty() {
+            return;
+        }
+        self.canvas.send_modify(|doc| {
+            for departed in &to_remove {
+                doc.remove_user(departed, self.node_id);
+            }
+        });
+    }
+
     /// Add a bootstrap peer to the gossip engine at runtime.
     ///
     /// No-op if the engine hasn't been wired in yet (shouldn't happen
@@ -255,6 +286,41 @@ mod tests {
         let (state, _rx) = make();
         // Must not panic when engine not yet wired in.
         state.add_bootstrap("127.0.0.1:9090".parse().unwrap());
+    }
+
+    #[test]
+    fn remove_departed_users_evicts_tombstoned_peer() {
+        use std::collections::HashSet;
+        let (state, _rx) = make();
+        let peer_id = Uuid::from_u128(99);
+        state.mutate(|doc, id| doc.add_user(peer_id, &id));
+        assert!(state.canvas().active_users().contains(&peer_id));
+
+        let tombstones: HashSet<Uuid> = [peer_id].into_iter().collect();
+        state.remove_departed_users(&tombstones);
+
+        assert!(!state.canvas().active_users().contains(&peer_id));
+    }
+
+    #[test]
+    fn remove_departed_users_with_absent_uuid_is_noop() {
+        use crdt_core::DeltaCrdt;
+        use std::collections::HashSet;
+        let (state, _rx) = make();
+        let tombstones: HashSet<Uuid> = [Uuid::from_u128(999)].into_iter().collect();
+        let version_before = state.canvas().version();
+        state.remove_departed_users(&tombstones);
+        assert_eq!(state.canvas().version(), version_before);
+    }
+
+    #[test]
+    fn remove_departed_users_empty_tombstones_is_noop() {
+        use crdt_core::DeltaCrdt;
+        use std::collections::HashSet;
+        let (state, _rx) = make();
+        let version_before = state.canvas().version();
+        state.remove_departed_users(&HashSet::new());
+        assert_eq!(state.canvas().version(), version_before);
     }
 
     #[test]

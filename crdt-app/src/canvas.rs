@@ -559,11 +559,12 @@ impl CanvasDeltaView {
             )
         };
 
-        let paint_total = if GCounter::is_empty_delta(&delta.paint_counts) {
-            None
-        } else {
-            Some(doc.paint_counts.value())
-        };
+        // Always include paint_total. GCounter::delta_since uses VectorClock tick
+        // values as its baseline, but clock ticks advance on every mutation while
+        // GCounter only advances on paints, so the delta is always empty after any
+        // non-paint mutation and the is_empty_delta gate would permanently suppress
+        // paint_total from delta messages.
+        let paint_total = Some(doc.paint_counts.value());
 
         // Leaderboard is derived from per-pixel ownership; any pixel change
         // can shift it. Recompute and ship when pixels changed.
@@ -855,6 +856,35 @@ mod tests {
         // Clock still advances even if cursor wasn't present (same as remove_user).
         let delta = d.delta_since(&version_before);
         assert!(!CanvasDocument::is_empty_delta(&delta));
+    }
+
+    /// Regression: GCounter::delta_since was called with VectorClock tick values
+    /// as the baseline. Clock ticks advance on every mutation (cursor, user,
+    /// palette) while GCounter only advances on paints. After a non-paint mutation
+    /// the clock tick for a node exceeds its paint count, so the GCounter delta
+    /// is always empty and paint_total is never included in subsequent WS deltas.
+    ///
+    /// Simulates: paint → cursor move (advances clock, not GCounter) → paint.
+    /// The third event's delta must still include paint_total.
+    #[test]
+    fn delta_view_paint_total_present_after_non_paint_mutation() {
+        let mut doc = CanvasDocument::new();
+
+        doc.paint(0, 0, (255, 0, 0, 255), node(1)); // clock tick = 1, GCounter = 1
+        doc.update_cursor(Uuid::from_u128(42), 5, 5, node(1)); // clock tick = 2, GCounter still 1
+        let v_after_cursor = doc.version(); // last_seen: clock tick for node_1 = 2
+
+        // Next paint: GCounter → 2, but or_set_version[node_1] = 2 (clock ticks).
+        // Bug: 2 > 2 is false → empty GCounter delta → paint_total = None.
+        doc.paint(1, 1, (0, 255, 0, 255), node(1));
+        let delta = doc.delta_since(&v_after_cursor);
+        let view = CanvasDeltaView::project(&delta, &doc);
+
+        assert_eq!(
+            view.paint_total,
+            Some(2),
+            "paint_total must be present even when a non-paint mutation preceded this delta"
+        );
     }
 
     #[test]

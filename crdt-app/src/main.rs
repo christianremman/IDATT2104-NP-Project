@@ -4,6 +4,7 @@ mod state;
 
 use crdt_net::{GossipConfig, GossipEngine};
 use state::AppState;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -65,6 +66,26 @@ async fn main() {
         .expect("gossip engine failed to start");
 
     state.set_engine(Arc::new(engine));
+
+    // Reconcile task: polls the gossip engine's tombstone set and evicts
+    // departed peer UUIDs from the CRDT user set so the frontend's
+    // active_peers list reflects actual gossip-level node presence.
+    // Runs at the same cadence as the gossip interval so departures are
+    // visible to browsers within one tick of the engine detecting them.
+    let state_reconcile = Arc::clone(&state);
+    let reconcile_interval = Duration::from_millis(args.gossip_interval_ms);
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(reconcile_interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Some(engine) = state_reconcile.engine() {
+                let tombstones: HashSet<Uuid> =
+                    engine.known_tombstones().into_iter().collect();
+                state_reconcile.remove_departed_users(&tombstones);
+            }
+        }
+    });
 
     tracing::info!(
         %node_id,
