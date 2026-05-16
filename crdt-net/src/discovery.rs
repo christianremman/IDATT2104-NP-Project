@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use tokio::sync::Notify;
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::engine::PeerRegistry;

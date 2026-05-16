@@ -10,7 +10,7 @@
 //! There is no standalone timestamp counter on `AppState`. Timestamps
 //! live on the [`CanvasDocument`]'s own `VectorClock`, which is part of
 //! the replicated state. When a document is gossiped to another peer,
-//! the clock travels with it and merges automatically, there is no 
+//! the clock travels with it and merges automatically, there is no
 //! manual syncing needed.
 //!
 //! **Why all methods are synchronous**
@@ -49,7 +49,7 @@ use uuid::Uuid;
 /// document's internal [`VectorClock`] handles all timestamp concerns,
 /// it increments on local mutations, and merges automatically when
 /// remote state arrives via gossip.
-/// 
+///
 /// The [`GossipEngine`] is created *after* `AppState` (it needs the
 /// [`watch::Receiver`] that `new` returns), so the engine handle is
 /// wired in via [`set_engine`](Self::set_engine) using a [`OnceLock`].
@@ -60,10 +60,9 @@ pub struct AppState {
     /// Single source of truth. Readers subscribe via `self.subscribe()`.
     canvas: watch::Sender<CanvasDocument>,
     /// Gossip engine handle, wired in after construction via `set_engine`.
-    /// `OnceLock` because the engine depends on the watch channel that
-    /// `new` creates. A chicken-and-egg that `OnceLock` resolves
-    /// without runtime locking overhead after initialization.
-    /// It is only at start we need the lock, hence OnceLock
+    /// `OnceLock` because the engine needs the `watch::Receiver` that `new`
+    /// produces — the chicken-and-egg is resolved by initializing exactly once
+    /// with no runtime locking cost after startup.
     engine: OnceLock<Arc<GossipEngine>>,
     /// Count of active WebSocket browser sessions. Used to add this node
     /// to the users ORSet on the first connection and remove it on the last.
@@ -100,7 +99,6 @@ impl AppState {
         self.node_id
     }
 
-
     /// Returns a reference to the gossip engine, if wired in.
     pub fn engine(&self) -> Option<&Arc<GossipEngine>> {
         self.engine.get()
@@ -114,14 +112,13 @@ impl AppState {
     pub fn set_engine(&self, engine: Arc<GossipEngine>) {
         let _ = self.engine.set(engine);
     }
- 
+
     /// Remove any active users whose UUIDs appear in `tombstones`.
     ///
-    /// Bridges the gossip engine's peer registry (which tracks departed nodes)
-    /// with the `CanvasDocument.users` ORSet (which drives `active_peers` in
-    /// the frontend). Called periodically by a reconcile task in `main.rs` so
-    /// that both graceful Goodbye departures and crash/timeout evictions are
-    /// reflected in the CRDT state without modifying `crdt-net`.
+    /// The gossip engine's peer registry and the `CanvasDocument.users` ORSet
+    /// are otherwise unconnected: tombstoning a peer in the registry (on Goodbye
+    /// or repeated send failures) does not automatically evict them from the
+    /// CRDT state. This method bridges that gap.
     ///
     /// No-op — and no document mutation — when the intersection is empty.
     pub fn remove_departed_users(&self, tombstones: &HashSet<Uuid>) {
@@ -155,7 +152,6 @@ impl AppState {
         }
     }
 
-
     /// Apply an arbitrary mutation to the canvas.
     ///
     /// The closure receives `&mut CanvasDocument` and this node's ID.
@@ -181,7 +177,6 @@ impl AppState {
         // `send_modify` calls the closure exactly once, synchronously,
         // before returning, `result` is always `Some` here.
         result.expect("send_modify did not invoke closure")
-
     }
 
     /// Merge a remotely-received document into local state.
@@ -214,16 +209,14 @@ impl AppState {
     }
 }
 
- 
- 
 #[cfg(test)]
 mod tests {
     use super::*;
- 
+
     fn make() -> (Arc<AppState>, watch::Receiver<CanvasDocument>) {
         AppState::new(Uuid::from_u128(1))
     }
- 
+
     #[test]
     fn paint_via_mutate() {
         let (state, rx) = make();
@@ -233,14 +226,14 @@ mod tests {
         let pixel = rx.borrow().pixels.get(&(1, 2)).map(|r| r.value());
         assert_eq!(pixel, Some((255, 0, 0, 255)));
     }
- 
+
     #[test]
     fn mutate_returns_value() {
         let (state, _rx) = make();
         let result = state.mutate(|_doc, _id| 42);
         assert_eq!(result, 42);
     }
- 
+
     #[test]
     fn apply_gossip_merges() {
         let (state, rx) = make();
@@ -250,29 +243,29 @@ mod tests {
         let pixel = rx.borrow().pixels.get(&(5, 5)).map(|r| r.value());
         assert_eq!(pixel, Some((0, 255, 0, 255)));
     }
- 
+
     #[test]
     fn gossip_merge_advances_clock() {
         let (state, _rx) = make();
- 
+
         // Remote peer painted at a high clock value.
         let mut incoming = CanvasDocument::new();
         let remote_id = Uuid::from_u128(2);
         incoming.paint(0, 0, (255, 0, 0, 255), remote_id);
- 
+
         state.apply_gossip(incoming);
- 
+
         // A subsequent local paint should have a higher timestamp
         // than the remote one, because VectorClock merged.
         state.mutate(|doc, node_id| {
             doc.paint(0, 0, (0, 0, 255, 255), node_id);
         });
- 
+
         // Local write should win (its clock entry is newer).
         let pixel = state.canvas().pixels.get(&(0, 0)).map(|r| r.value());
         assert_eq!(pixel, Some((0, 0, 255, 255)));
     }
- 
+
     #[test]
     fn subscribe_sees_changes() {
         let (state, _rx) = make();
@@ -280,7 +273,7 @@ mod tests {
         state.mutate(|doc, id| doc.paint(0, 0, (1, 2, 3, 4), id));
         assert!(watcher.has_changed().unwrap());
     }
- 
+
     #[test]
     fn add_bootstrap_without_engine_is_noop() {
         let (state, _rx) = make();

@@ -3,7 +3,9 @@
 //! All canvas mutations go through [`AppState::mutate`]. This file
 //! contains no domain logic, only request parsing and response
 //! serialization.
-use crate::canvas::{CanvasDeltaView, CanvasDocument, CanvasView, LeaderboardEntry, Rgba};
+use crate::canvas::{
+    CanvasDeltaView, CanvasDocument, CanvasVersion, CanvasView, LeaderboardEntry, Rgba,
+};
 use crate::state::AppState;
 use axum::extract::ws;
 use axum::{
@@ -14,14 +16,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use crdt_core::clocks::VectorClock;
 use crdt_core::DeltaCrdt;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
-
 
 /// Embeds the built Vue frontend (`frontend/dist/`) into the binary at
 /// compile time. `static_handler` serves these assets from `/`, so a
@@ -116,7 +116,6 @@ async fn paint(State(s): State<Arc<AppState>>, Json(req): Json<PaintRequest>) ->
     Json(serde_json::json!({ "ok": true }))
 }
 
-
 /// `GET /api/node` — returns this node's UUID
 async fn node_info(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(NodeInfo {
@@ -141,7 +140,6 @@ async fn cursor(
     }
 }
 
-
 /// `GET /api/palette` — returns the current shared palette as a JSON array of RGBA arrays.
 async fn get_palette(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let colors: Vec<[u8; 4]> = s
@@ -163,7 +161,6 @@ async fn add_palette(
     StatusCode::CREATED
 }
 
-
 /// `DELETE /api/palette` — remove a color from the shared palette.
 ///
 /// Returns 204 No Content on success, 404 Not Found if the color was not in the palette.
@@ -179,7 +176,6 @@ async fn remove_palette(
         StatusCode::NOT_FOUND
     }
 }
-
 
 /// `GET /api/leaderboard` — returns pixel ownership counts sorted descending.
 async fn get_leaderboard(State(s): State<Arc<AppState>>) -> impl IntoResponse {
@@ -211,11 +207,10 @@ async fn add_peer(
         Err(_) => StatusCode::BAD_REQUEST,
     }
 }
- 
 async fn static_handler(uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
- 
+
     match Frontend::get(path) {
         Some(content) => Response::builder()
             .header(header::CONTENT_TYPE, content.metadata.mimetype())
@@ -239,8 +234,8 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
 /// `GET /ws` — upgrade to a WebSocket connection and hand off to [`handle_ws`].
 ///
 /// Accepts an optional `?id=<uuid>` query parameter. The frontend passes its
-/// stable `sessionStorage` UUID so that cursor keys and `active_peers` UUIDs
-/// share the same namespace. Falls back to a fresh UUID when absent or invalid.
+/// stable `sessionStorage` UUID for cursor ownership tracking. Falls back to a
+/// fresh UUID when absent or invalid.
 async fn ws_handler(
     State(s): State<Arc<AppState>>,
     Query(q): Query<WsQuery>,
@@ -289,13 +284,9 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: Uuid) {
     });
 }
 
- 
 /// Send the initial full-state snapshot. Returns the version it covers
 /// so the delta loop knows where to start, or `None` if the send fails.
-async fn send_snapshot(
-    socket: &mut WebSocket,
-    state: &AppState,
-) -> Option<VectorClock> {
+async fn send_snapshot(socket: &mut WebSocket, state: &AppState) -> Option<CanvasVersion> {
     let (msg, version) = {
         let doc = state.canvas();
         let version = doc.version();
@@ -314,17 +305,13 @@ async fn send_snapshot(
     }
     Some(version)
 }
- 
+
 /// Stream deltas to the client until it disconnects or the watch closes.
 ///
 /// Borrows the document just long enough to compute the delta and
 /// serialize — the guard is always dropped before the `.await` on
 /// `socket.send`.
-async fn stream_deltas(
-    socket: &mut WebSocket,
-    state: &AppState,
-    mut last_seen: VectorClock,
-) {
+async fn stream_deltas(socket: &mut WebSocket, state: &AppState, mut last_seen: CanvasVersion) {
     let mut rx = state.subscribe();
     loop {
         tokio::select! {
@@ -363,8 +350,6 @@ async fn stream_deltas(
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,12 +357,12 @@ mod tests {
     use axum::http::Request;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
- 
+
     fn make_app() -> Router {
         let (state, _rx) = crate::state::AppState::new(Uuid::new_v4());
         router(state)
     }
- 
+
     #[tokio::test]
     async fn get_canvas_returns_empty_snapshot() {
         let app = make_app();
@@ -388,7 +373,7 @@ mod tests {
         let view: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(view["pixels"].as_object().unwrap().is_empty());
     }
- 
+
     #[tokio::test]
     async fn paint_returns_ok() {
         let app = make_app();
@@ -399,25 +384,25 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
     }
- 
+
     #[tokio::test]
     async fn paint_then_get_shows_pixel() {
         let (state, _rx) = crate::state::AppState::new(Uuid::new_v4());
         let app = router(state.clone());
- 
+
         let paint = Request::post("/api/canvas/paint")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"x":3,"y":4,"color":[10,20,30,40]}"#))
             .unwrap();
         let _ = app.clone().oneshot(paint).await.unwrap();
- 
+
         let get = Request::get("/api/canvas").body(Body::empty()).unwrap();
         let res = app.oneshot(get).await.unwrap();
         let body = res.into_body().collect().await.unwrap().to_bytes();
         let view: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(view["pixels"]["3,4"], serde_json::json!([10, 20, 30, 40]));
     }
- 
+
     #[tokio::test]
     async fn node_info_returns_uuid() {
         let app = make_app();
@@ -428,7 +413,7 @@ mod tests {
         let info: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(Uuid::parse_str(info["id"].as_str().unwrap()).is_ok());
     }
- 
+
     #[tokio::test]
     async fn add_peer_valid_returns_no_content() {
         let app = make_app();
@@ -439,7 +424,7 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::NO_CONTENT);
     }
- 
+
     #[tokio::test]
     async fn add_peer_invalid_returns_bad_request() {
         let app = make_app();
@@ -450,26 +435,26 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
- 
+
     #[tokio::test]
     async fn palette_add_and_get() {
         let (state, _rx) = crate::state::AppState::new(Uuid::new_v4());
         let app = router(state.clone());
- 
+
         let add = Request::post("/api/palette")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"color":[255,0,0,255]}"#))
             .unwrap();
         let res = app.clone().oneshot(add).await.unwrap();
         assert_eq!(res.status(), StatusCode::CREATED);
- 
+
         let get = Request::get("/api/palette").body(Body::empty()).unwrap();
         let res = app.oneshot(get).await.unwrap();
         let body = res.into_body().collect().await.unwrap().to_bytes();
         let colors: Vec<[u8; 4]> = serde_json::from_slice(&body).unwrap();
         assert!(colors.contains(&[255, 0, 0, 255]));
     }
- 
+
     #[tokio::test]
     async fn remove_nonexistent_palette_returns_not_found() {
         let app = make_app();
@@ -480,7 +465,7 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
- 
+
     #[tokio::test]
     async fn cursor_valid_uuid_returns_no_content() {
         let app = make_app();
@@ -493,7 +478,7 @@ mod tests {
         let res = app.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::NO_CONTENT);
     }
- 
+
     #[tokio::test]
     async fn cursor_invalid_uuid_returns_bad_request() {
         let app = make_app();

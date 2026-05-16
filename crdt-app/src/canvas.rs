@@ -27,7 +27,7 @@
 //! increment the clock for document-level causality, so a peer can
 //! tell whether it has seen a particular mutation. This is handled with
 //! [`delta_since`](DeltaCrdt::delta_since), which detect the changes.
-//! 
+//!
 //! ## Deltas
 //!
 //! The [`DeltaCrdt`] implementation lets the WebSocket layer send only
@@ -39,7 +39,7 @@
 //!
 //! Gossip between peers still uses full-state merge (simpler, handles
 //! partitions naturally).
-use crdt_core::clocks::{VectorClock};
+use crdt_core::clocks::VectorClock;
 use crdt_core::counters::GCounter;
 use crdt_core::registers::lww_register::LWWRegister;
 use crdt_core::sets::{ORSet, ORSetDelta};
@@ -48,6 +48,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+/// Composite version identifier for [`CanvasDocument`] deltas.
+///
+/// Carries the VectorClock (covers pixels, cursors, users, palette) and the
+/// GCounter state (paint counts) separately, because the two advance at
+/// different rates: the clock increments on every mutation while the counter
+/// only increments on paints.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CanvasVersion {
+    pub clock: VectorClock,
+    pub paint_counts: HashMap<NodeId, u64>,
+}
 
 /// RGBA color stored as four `u8` channels: red, green, blue, alpha.
 pub type Rgba = (u8, u8, u8, u8);
@@ -138,7 +150,6 @@ impl CanvasDocument {
             .or_insert_with(|| LWWRegister::new(DEFAULT_PIXEL, 0, node_id))
             .set(color, ts, node_id);
         self.paint_counts.increment(node_id);
-
     }
 
     /// Register a peer as active. Uses ORSet add-wins semantics.
@@ -147,12 +158,10 @@ impl CanvasDocument {
         self.users.insert(user, node_id, seq);
     }
 
-    /// Remove a peer from the active set and evict their cursor.
+    /// Remove a peer from the active set.
     ///
-    /// Increments the clock so the removal shows up as a new document
-    /// version. Without this, [`delta_since`](DeltaCrdt::delta_since)
-    /// returns an empty delta (clock unchanged) and connected browsers
-    /// never learn the peer left.
+    /// Increments the clock so the removal produces a non-empty delta;
+    /// without this connected browsers would never learn the peer left.
     pub fn remove_user(&mut self, user: &Uuid, node_id: NodeId) -> bool {
         self.clock.increment(node_id);
         self.cursors.remove(user);
@@ -164,10 +173,9 @@ impl CanvasDocument {
         self.users.value()
     }
 
-    /// Remove a cursor entry for a browser session that has disconnected.
+    /// Remove a browser session's cursor entry on disconnect.
     ///
-    /// Increments the clock so the removal is visible as a new document
-    /// version and propagates to other peers as a non-empty delta.
+    /// Increments the clock so the removal propagates as a non-empty delta.
     pub fn remove_cursor_entry(&mut self, user: &Uuid, node_id: NodeId) {
         self.clock.increment(node_id);
         self.cursors.remove(user);
@@ -229,19 +237,10 @@ impl Crdt for CanvasDocument {
 
     /// Merge `other` into `self` using each field's own CRDT merge rule.
     ///
-    /// Each of the field will merge inpepentendly.
     /// - Clock: element-wise max (Lamport rule per node).
     /// - Pixels / cursors: LWW — higher timestamp wins per coordinate.
     /// - Users / palette: ORSet — add-wins on concurrent add/remove.
     /// - Paint counts: GCounter — per-node max.
-    /// 
-    /// Cursor entries for peers no longer in the active user set are
-    /// evicted. The cursor `HashMap` has no tombstone mechanism, so
-    /// without this a departed peer's cursor would persist on remote
-    /// nodes indefinitely. Ideally the the ORset should have a garbage 
-    /// collection implementation to remove items from the tombsones,
-    /// but since it does not, we uses the hashmap so the cursors of 
-    /// disconnected peers don't persist indefinitely
     fn merge(&mut self, other: Self) {
         self.clock.merge(other.clock);
 
@@ -340,16 +339,18 @@ pub struct CanvasDelta {
 
 impl DeltaCrdt for CanvasDocument {
     type Delta = CanvasDelta;
-    type Version = VectorClock;
+    type Version = CanvasVersion;
 
-    /// Returns the document's current [`VectorClock`] as its version identifier.
     fn version(&self) -> Self::Version {
-        self.clock.clone()
+        CanvasVersion {
+            clock: self.clock.clone(),
+            paint_counts: self.paint_counts.version(),
+        }
     }
 
     /// Compute a minimal delta containing only the changes this document has
     /// that `since` does not. Pass [`VectorClock::new`] to get a full-state delta.
-    /// 
+    ///
     /// Each field filters independently against the same [`VectorClock`]
     /// frontier. This works because ORSet tag sequences are sourced from
     /// the document clock — one version covers all fields.
@@ -358,7 +359,7 @@ impl DeltaCrdt for CanvasDocument {
             .pixels
             .iter()
             .filter_map(|(coord, reg)| {
-                let known = since.get(&reg.node_id());
+                let known = since.clock.get(&reg.node_id());
                 (reg.timestamp() > known).then(|| (*coord, reg.clone()))
             })
             .collect();
@@ -367,22 +368,20 @@ impl DeltaCrdt for CanvasDocument {
             .cursors
             .iter()
             .filter_map(|(uid, reg)| {
-                let known = since.get(&reg.node_id());
+                let known = since.clock.get(&reg.node_id());
                 (reg.timestamp() > known).then(|| (*uid, reg.clone()))
             })
             .collect();
 
-        // ORSet tag seqs are sourced from the same VectorClock the document
-        // tracks, so its frontier-as-HashMap is `since.clock`.
-        let or_set_version: std::collections::HashMap<NodeId, u64> = since.value();
+        let or_set_version: std::collections::HashMap<NodeId, u64> = since.clock.value();
 
         CanvasDelta {
-            clock: self.clock.delta_since(since),
+            clock: self.clock.delta_since(&since.clock),
             pixels,
             users: self.users.delta_since(&or_set_version),
             cursors,
             palette: self.palette.delta_since(&or_set_version),
-            paint_counts: self.paint_counts.delta_since(&or_set_version),
+            paint_counts: self.paint_counts.delta_since(&since.paint_counts),
         }
     }
 
@@ -418,19 +417,20 @@ impl DeltaCrdt for CanvasDocument {
         // Clock delta is the primary signal. Per-field checks are defense
         // in depth: a mutation that skips the clock still produces a
         // truthy delta and avoids a silent WS skip.
+        // GCounter is excluded: its delta is always the full state (empty-HashMap
+        // baseline) so is_empty_delta is never true there regardless of activity.
         VectorClock::is_empty_delta(&delta.clock)
             && delta.pixels.is_empty()
             && delta.cursors.is_empty()
             && ORSet::<Uuid>::is_empty_delta(&delta.users)
             && ORSet::<Rgba>::is_empty_delta(&delta.palette)
-            && GCounter::is_empty_delta(&delta.paint_counts)
     }
 
     /// Returns `true` when `current` causally dominates `other` — i.e., `current`
     /// has observed everything `other` has, so it is safe to apply a delta computed
     /// against `other` as a baseline without gaps.
     fn version_includes(current: &Self::Version, other: &Self::Version) -> bool {
-        current.dominates(other)
+        current.clock.dominates(&other.clock)
     }
 }
 
@@ -739,7 +739,7 @@ mod tests {
         a.paint(1, 2, (10, 20, 30, 40), node(1));
         a.add_palette_color((255, 0, 0, 255), &node(1));
 
-        let delta = a.delta_since(&VectorClock::new());
+        let delta = a.delta_since(&CanvasDocument::new().version());
         let mut b = CanvasDocument::new();
         b.merge_delta(delta);
 
@@ -785,7 +785,7 @@ mod tests {
     fn delta_is_idempotent() {
         let mut a = CanvasDocument::new();
         a.paint(3, 4, (5, 6, 7, 8), node(1));
-        let delta = a.delta_since(&VectorClock::new());
+        let delta = a.delta_since(&CanvasDocument::new().version());
 
         let mut b = CanvasDocument::new();
         b.merge_delta(delta.clone());
@@ -804,7 +804,7 @@ mod tests {
         a.add_palette_color((5, 6, 7, 8), &node(1));
         a.remove_palette_color(&(1, 2, 3, 4), node(1));
         let mut b = CanvasDocument::new();
-        b.merge_delta(a.delta_since(&VectorClock::new()));
+        b.merge_delta(a.delta_since(&CanvasDocument::new().version()));
 
         assert!(b.palette_colors().contains(&(5, 6, 7, 8)));
         assert!(!b.palette_colors().contains(&(1, 2, 3, 4)));
@@ -884,6 +884,43 @@ mod tests {
             view.paint_total,
             Some(2),
             "paint_total must be present even when a non-paint mutation preceded this delta"
+        );
+    }
+
+    /// Regression: after a non-paint mutation advances the VectorClock without
+    /// advancing the GCounter, the gossip engine updates `last_sent_version` to
+    /// the post-mutation clock. The next paint increments both clock and GCounter
+    /// by 1, but the GCounter value now equals the captured clock tick, so
+    /// `GCounter::delta_since(or_set_version)` returns empty and the paint count
+    /// never reaches the peer via SyncDelta.
+    #[test]
+    fn gcounter_propagates_via_delta_after_non_paint_mutation() {
+        let mut a = CanvasDocument::new();
+        let mut b = CanvasDocument::new();
+
+        // Initial paint — bring B in sync with A.
+        a.paint(0, 0, (1, 2, 3, 4), node(1));
+        b.merge(a.clone());
+
+        // Non-paint mutation: clock advances, GCounter stays.
+        a.update_cursor(Uuid::from_u128(1), 5, 5, node(1));
+
+        // Gossip tick — B absorbs cursor, last_sent_version advances to post-cursor clock.
+        let delta_cursor = a.delta_since(&b.version());
+        b.merge_delta(delta_cursor);
+        let b_version = b.version(); // baseline for the next SyncDelta
+
+        // A paints — GCounter goes from 1 to 2, clock goes from 2 to 3.
+        a.paint(1, 1, (5, 6, 7, 8), node(1));
+
+        // SyncDelta with the post-cursor baseline: or_set_version[A]=2, GCounter[A]=2 → 2>2 = false.
+        let delta = a.delta_since(&b_version);
+        b.merge_delta(delta);
+
+        assert_eq!(
+            b.paint_counts.value(),
+            2,
+            "GCounter must propagate via SyncDelta even when a non-paint mutation preceded it"
         );
     }
 

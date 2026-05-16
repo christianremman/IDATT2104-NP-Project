@@ -20,7 +20,7 @@ struct Args {
     #[arg(long, default_value = "")]
     peers: String,
     /// Gossip tick interval in milliseconds. Lower values give snappier
-    /// convergence at the cost of more network chatter. 
+    /// convergence at the cost of more network chatter.
     #[arg(long, default_value_t = 200)]
     gossip_interval_ms: u64,
 }
@@ -67,11 +67,10 @@ async fn main() {
 
     state.set_engine(Arc::new(engine));
 
-    // Reconcile task: polls the gossip engine's tombstone set and evicts
-    // departed peer UUIDs from the CRDT user set so the frontend's
-    // active_peers list reflects actual gossip-level node presence.
-    // Runs at the same cadence as the gossip interval so departures are
-    // visible to browsers within one tick of the engine detecting them.
+    // Polls the gossip engine's tombstone set and evicts departed peer UUIDs
+    // from the CRDT user set. The engine's peer registry and the CanvasDocument
+    // user ORSet are otherwise unconnected, so neither graceful Goodbye messages
+    // nor crash evictions are reflected in active_peers without this.
     let state_reconcile = Arc::clone(&state);
     let reconcile_interval = Duration::from_millis(args.gossip_interval_ms);
     tokio::spawn(async move {
@@ -80,8 +79,7 @@ async fn main() {
         loop {
             ticker.tick().await;
             if let Some(engine) = state_reconcile.engine() {
-                let tombstones: HashSet<Uuid> =
-                    engine.known_tombstones().into_iter().collect();
+                let tombstones: HashSet<Uuid> = engine.known_tombstones().into_iter().collect();
                 state_reconcile.remove_departed_users(&tombstones);
             }
         }
