@@ -12,7 +12,7 @@
 //! the replicated state. When a document is gossiped to another peer,
 //! the clock travels with it and merges automatically, there is no
 //! manual syncing needed.
-//! 
+//!
 //! Earlier design kept an `AtomicU64` clock counter here and
 //! advanced it by manually after each gossip merge. This was a worse implementations
 //! of what `VectorClock::merge` already does, with a race window between
@@ -36,15 +36,13 @@
 use crate::canvas::CanvasDocument;
 use crdt_core::Crdt;
 use crdt_net::GossipEngine;
-use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::watch;
 use uuid::Uuid;
 
 /// Shared application state, wrapped in `Arc` and passed to all tasks.
-/// 
+///
 /// Only three fields: the node's identity, the canvas channel, and gossip engine.
 ///  The document's internal [`VectorClock`] handles all timestamp concerns,
 /// it increments on local mutations, and merges automatically when
@@ -108,13 +106,12 @@ impl AppState {
 
     /// Add a bootstrap peer to the gossip engine at runtime.
     ///
-    /// Delegates to [`GossipEngine::add_bootstrap`]. `api.rs` only holds 
-    /// `Arc<AppState>`, so it can't reach the engine directly. The engine 
-    /// discovers the peer's UUID on first successful gossip exchange and 
+    /// Delegates to [`GossipEngine::add_bootstrap`]. `api.rs` only holds
+    /// `Arc<AppState>`, so it can't reach the engine directly. The engine
+    /// discovers the peer's UUID on first successful gossip exchange and
     /// migrates it from the bootstrap set into the resolved peer map. TODO: Explain this simpler
     ///
     /// No-op if the engine hasn't been wired in yet via `set_engine`.
-
     pub fn add_bootstrap(&self, addr: SocketAddr) {
         if let Some(engine) = self.engine.get() {
             engine.add_bootstrap(addr);
@@ -138,11 +135,10 @@ impl AppState {
     /// state.mutate(|doc, node_id| {
     ///     doc.paint(x, y, color, node_id);
     /// });
-    /// 
+    ///
     /// // Add a user
     /// state.mutate(|doc, node_id| doc.add_user(user, &node_id));
     /// ```
-
     pub fn mutate<R>(&self, f: impl FnOnce(&mut CanvasDocument, Uuid) -> R) -> R {
         let mut result = None;
         self.canvas.send_modify(|doc| {
@@ -166,8 +162,8 @@ impl AppState {
     /// Borrow the current canvas state.
     ///
     /// Returns a read guard into the watch channel. Hold it only
-    /// briefly, while it's alive, `[`mutate`](Self::mutate) and 
-    /// [`apply_gossip`](Self::apply_gossip) will block waiting 
+    /// briefly, while it's alive, `[`mutate`](Self::mutate) and
+    /// [`apply_gossip`](Self::apply_gossip) will block waiting
     /// for the guard to drop.
     ///
     /// Use this for quick reads like serializing an HTTP response.
@@ -185,15 +181,14 @@ impl AppState {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
- 
+
     fn make() -> (Arc<AppState>, watch::Receiver<CanvasDocument>) {
         AppState::new(Uuid::from_u128(1))
     }
- 
+
     #[test]
     fn paint_via_mutate() {
         let (state, rx) = make();
@@ -203,14 +198,14 @@ mod tests {
         let pixel = rx.borrow().pixels.get(&(1, 2)).map(|r| r.value());
         assert_eq!(pixel, Some((255, 0, 0, 255)));
     }
- 
+
     #[test]
     fn mutate_returns_value() {
         let (state, _rx) = make();
         let result = state.mutate(|_doc, _id| 42);
         assert_eq!(result, 42);
     }
- 
+
     #[test]
     fn apply_gossip_merges() {
         let (state, rx) = make();
@@ -220,36 +215,36 @@ mod tests {
         let pixel = rx.borrow().pixels.get(&(5, 5)).map(|r| r.value());
         assert_eq!(pixel, Some((0, 255, 0, 255)));
     }
- 
+
     #[test]
     fn gossip_merge_advances_clock() {
         let (state, _rx) = make();
- 
+
         let mut incoming = CanvasDocument::new();
         let remote_id = Uuid::from_u128(2);
         incoming.paint(0, 0, (255, 0, 0, 255), remote_id);
- 
+
         state.apply_gossip(incoming);
- 
+
         // A subsequent local paint should have a higher timestamp
         // than the remote one, because VectorClock merged.
         state.mutate(|doc, node_id| {
             doc.paint(0, 0, (0, 0, 255, 255), node_id);
         });
- 
+
         // Local write should win (its clock entry is newer).
         let pixel = state.canvas().pixels.get(&(0, 0)).map(|r| r.value());
         assert_eq!(pixel, Some((0, 0, 255, 255)));
     }
- 
+
     #[test]
     fn subscribe_sees_changes() {
         let (state, _rx) = make();
-        let mut watcher = state.subscribe();
+        let watcher = state.subscribe();
         state.mutate(|doc, id| doc.paint(0, 0, (1, 2, 3, 4), id));
         assert!(watcher.has_changed().unwrap());
     }
- 
+
     #[test]
     fn add_bootstrap_without_engine_is_noop() {
         let (state, _rx) = make();
@@ -257,4 +252,3 @@ mod tests {
         state.add_bootstrap("127.0.0.1:9090".parse().unwrap());
     }
 }
- 

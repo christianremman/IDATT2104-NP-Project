@@ -47,6 +47,7 @@ pub(crate) fn spawn_mdns(
     .map_err(io_other)?;
 
     daemon.register(service).map_err(io_other)?;
+    debug!(%advertise_addr, "mDNS service registered");
     let receiver = daemon.browse(SERVICE_TYPE).map_err(io_other)?;
 
     // The daemon must live for the lifetime of the engine; move it into the

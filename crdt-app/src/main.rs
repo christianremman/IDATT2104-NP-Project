@@ -1,4 +1,3 @@
-
 //! Entry point for the collaborative pixel canvas.
 //!
 //! This binary wires together the three layers of the application:
@@ -10,7 +9,7 @@
 //!
 //! The startup sequence: parse CLI args, create the shared
 //! state, start the gossip engine, spawn background tasks, then serve
-//! HTTP. On shutdown, axum drains connections (so WebSocket cleanup runs), 
+//! HTTP. On shutdown, axum drains connections (so WebSocket cleanup runs),
 //! then the engine sends Goodbye to peers.
 //!
 //! **Two ports, two protocols**. Each node listens on ports:
@@ -56,7 +55,6 @@ use uuid::Uuid;
 /// Command-line arguments for the canvas node.
 #[derive(clap::Parser)]
 struct Args {
-
     /// Port for the HTTP server and WebSocket connections.
     /// This is what browsers connect to (e.g. http://localhost:8080).
     #[arg(long, default_value_t = 8080)]
@@ -153,9 +151,10 @@ async fn main() {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 ticker.tick().await;
-                let Some(engine) = state.engine() else { continue };
-                let tombstones: HashSet<Uuid> =
-                    engine.known_tombstones().into_iter().collect();
+                let Some(engine) = state.engine() else {
+                    continue;
+                };
+                let tombstones: HashSet<Uuid> = engine.known_tombstones().into_iter().collect();
                 if tombstones.is_empty() {
                     continue;
                 }
@@ -164,7 +163,10 @@ async fn main() {
                     active.intersection(&tombstones).copied().collect()
                 };
                 if !departed.is_empty() {
-                    tracing::debug!(count = departed.len(), "evicting departed peers from user set");
+                    tracing::debug!(
+                        count = departed.len(),
+                        "evicting departed peers from user set"
+                    );
                     state.mutate(|doc, id| {
                         for uid in &departed {
                             doc.remove_user(uid, id);
@@ -174,7 +176,6 @@ async fn main() {
             }
         });
     }
-
 
     let state_clone = Arc::clone(&state);
     let mut merged_rx = merged_tx.subscribe();

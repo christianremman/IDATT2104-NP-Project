@@ -11,7 +11,7 @@
 //! **WebSocket session lifecycle**
 //!
 //! Each browser tab opens a WebSocket to this node's HTTP server.
-//! These are local connections. Peer-to-peer gossip runs on separate 
+//! These are local connections. Peer-to-peer gossip runs on separate
 //! TCP connections managed by `crdt-net`.
 //!
 //! The `active_peers` list in the frontend shows which nodes
@@ -22,9 +22,9 @@
 //!   the users ORSet. Gossip transimits it to other nodes.
 //! - Last browser disconnects (1 -> 0): the UUID is removed.
 //!   Gossip transmits that too.
-//! 
+//!
 //! ** Notes**
-//! 
+//!
 //! A node running with zero browsers is still a gossip peer,
 //! it just doesn't appear in `active_peers`.
 //!
@@ -47,8 +47,8 @@ use axum::{
 use crdt_core::DeltaCrdt;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
@@ -58,7 +58,6 @@ use uuid::Uuid;
 /// The counter drives add/remove of this node's UUID in the users ORSet:
 /// first tab in adds, last tab out removes.
 static WS_SESSIONS: AtomicUsize = AtomicUsize::new(0);
-
 
 /// Embeds the built Vue frontend (`frontend/dist/`) into the binary at
 /// compile time. `static_handler` serves these assets from `/`, so a
@@ -301,7 +300,6 @@ async fn ws_handler(
 /// The three phases (register - snapshot - stream - cleanup) are split
 /// into separate functions for readability.
 async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: Uuid) {
-
     // Register this session. If it's the first browser tab on this node,
     // make the node visible in active_peers.
     let is_first = WS_SESSIONS.fetch_add(1, Ordering::Relaxed) == 0;
@@ -309,7 +307,7 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: Uuid) {
         state.mutate(|doc, id| doc.add_user(id, &id));
     }
     tracing::info!(%user_id, sessions = WS_SESSIONS.load(Ordering::Relaxed), "ws client connected");
- 
+
     // Send initial full snapshot, then stream deltas.
     let last_seen = match send_snapshot(&mut socket, &state).await {
         Some(version) => version,
@@ -318,11 +316,10 @@ async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: Uuid) {
             return;
         }
     };
- 
-    stream_deltas(&mut socket, &state, last_seen).await;
- 
-    cleanup_session(&state, &user_id);
 
+    stream_deltas(&mut socket, &state, last_seen).await;
+
+    cleanup_session(&state, &user_id);
 }
 
 /// Clean up when a WebSocket session ends.
@@ -344,7 +341,6 @@ fn cleanup_session(state: &AppState, user_id: &Uuid) {
         "ws client disconnected"
     );
 }
-
 
 /// Send the initial full-state snapshot. Returns the version it covers
 /// so the delta loop knows where to start, or `None` if the send fails.
