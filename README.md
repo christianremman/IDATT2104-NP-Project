@@ -2,6 +2,17 @@
 
 A distributed collaborative pixel canvas using delta state-based conflict-free replicated data types and peer-to-peer gossip.
 
+## Introduction
+
+This project implements a distributed drawing application using CRDTs for conflict-free synchronization between peers. Each peer runs a standalone binary that includes the full application:
+an HTTP server, a WebSocket endpoint for live browser updates, and a
+TCP gossip engine for peer-to-peer state synchronization.
+
+Peers discover each other automatically on the local network via mDNS,
+or can be connected manually across subnets using bootstrap addresses.
+The canvas, palette, user presence, and cursor positions all replicate
+across the mesh without any central server or coordination.
+
 The project includes a generalt purpose CRDTs library, which has implementation of multiple state-based crdts. These have support for using time deltas to improve performance, where only the recently applied chages to the state are used. 
 It also has a networking library, which has a general purpose gossiping engine supporting the use of delta crdts.
 
@@ -25,6 +36,10 @@ from `crdt-core` into a `CanvasDocument`, wires it into `crdt-net` for
 peer-to-peer sync, and serves a browser frontend over HTTP/WebSocket.
 **`frontend`** — Vue 3 single-page app. Pixel canvas, color picker, peer list, leaderboard. The build of the frontend is served by crdt-app.
 
+Explain each of the crates here, and the use of a cargo workspace.
+
+## Key Design Desitions
+
 ### The VectorClock
 A importaint design desition is that our app uses one `VectorClock` on
 `CanvasDocument`. This is the timestamp source for everything: LWW pixel
@@ -47,52 +62,41 @@ automatically with the rest of the state, and `increment` is called
 inside the same `send_modify` closure as the mutation.
 
 The clock uses  the Lamport rule. `VectorClock::increment` does not add 1 to the node's own
-counter. It sets it to `max(own_counter, max_across_all_nodes) + 1`.
-This is the Lamport clock rule applied to a vector clock.
- 
+counter. It sets it to `max(own_counter, max_across_all_nodes) + 1`. 
 Without this, a node that merges a peer's state and then paints can
-generate a timestamp *lower* than what it just observed:
+generate a timestamp *lower* than what it just observed, and lose in LWW even though it painted later.
+
+### Synchronus mutations
+
+All mutations happens via `watch::Sender::send_modify`, meaning all canvas
+mutations run to completion without yielding, eliminating
+lock-across-await risks and enabling atomic mutation + delta
+computation.
+
+Explain more in detail why this is ggod, and the tradeoff
 
 
-## Quick start (pre-built binary)
+## Installation
 
-No Rust or Node.js required. Download the binary for your platform from [GitHub Releases](../../releases/latest):
 
-| Platform | File |
-|---|---|
-| Linux x86_64 | `crdt-node-linux-x86_64` |
-| macOS Apple Silicon | `crdt-node-macos-arm64` |
-| Windows | `crdt-node-windows-x86_64.exe` |
-
-Run it:
-
-```
-./crdt-node
-```
-
-Open http://localhost:8080. The canvas loads automatically.
-
-On a LAN, each peer runs their own copy. Nodes discover each other via mDNS with no configuration. If mDNS is unavailable (e.g. university network), specify a peer manually:
-
-```
-./crdt-node --peers 192.168.x.x:9090
-```
 
 ## Development
 
 ### Prerequisites
 
-- Rust (stable) — https://rustup.rs
-- Node.js 18+ and npm
+- Rust toolchain (1.80+): https://rustup.rs
+- Node.js (18+) and npm: https://nodejs.org
 
 ### Running
+For easier development with the frontend (have auto reloading of files, not build required), 
+the backend is started by npm.
 
 ```
 npm run setup   # first time only — installs dependencies
 npm run dev     # starts backend (port 8080) and frontend dev server (port 3000) together
 ```
 
-Open http://localhost:3000. The canvas connects automatically. First compile takes ~30–60s.
+Open http://localhost:3000. The canvas connects automatically.
 
 To run processes separately:
 
@@ -101,11 +105,15 @@ npm run dev:backend    # cargo run -p crdt-app (port 8080, gossip port 9090)
 npm run dev:frontend   # Vite dev server (port 3000, proxies /api and /ws to :8080)
 ```
 
-### Two nodes on one machine (binary)
+For only running the backend (must have built frontend files).
+```
+cargo run
+```
+### Two nodes on one machine 
 
 ```
-./crdt-node --port 8080 --gossip-port 9090 --peers 127.0.0.1:9091
-./crdt-node --port 8081 --gossip-port 9091 --peers 127.0.0.1:9090
+cargo run --port 8080 --gossip-port 9090 
+cargo run --port 8081 --gossip-port 9091 --peers 127.0.0.1:9090
 ```
 
 Open http://localhost:8080 and http://localhost:8081 in separate tabs. Both canvases sync.
@@ -118,7 +126,18 @@ npm run build
 
 Builds the frontend, then compiles the Rust binary with the frontend embedded. Output: `target/release/crdt-app`.
 
-## Releasing
+### Debugging
+ 
+```bash
+# Verbose gossip logging
+RUST_LOG=info,crdt_net=debug cargo run -p crdt-app -- --port 8080 --gossip-port 9090
+ 
+# See everything
+RUST_LOG=debug cargo run -p crdt-app -- --port 8080 --gossip-port 9090
+```
+
+
+### Releasing
 
 Push a version tag to trigger the CI release workflow, which builds binaries for all platforms and uploads them to GitHub Releases:
 
@@ -127,30 +146,42 @@ git tag v1.0.0
 git push --tags
 ```
 
-## CLI flags
+### CLI flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `--port` | 8080 | HTTP/WebSocket port |
 | `--gossip-port` | 9090 | TCP port for peer-to-peer gossip |
 | `--peers` | _(empty)_ | Comma-separated bootstrap peers, e.g. `127.0.0.1:9091` |
+| `--gossip-interval-ms` | 200 |   Gossip tick interval |
 
 ## REST API
 
+ 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/canvas` | Full canvas snapshot |
-| POST | `/api/canvas/paint` | Paint a pixel `{"x":0,"y":0,"color":[r,g,b,a]}` |
-| GET | `/api/node` | Node ID and address |
-| GET | `/api/palette` | Current shared palette |
-| POST | `/api/palette` | Add color `{"color":[r,g,b,a]}` |
-| DELETE | `/api/palette` | Remove color `{"color":[r,g,b,a]}` |
-| GET | `/api/leaderboard` | Pixel ownership counts per node |
-| GET | `/ws` | WebSocket — streams canvas snapshots on every change |
+| `GET` | `/api/canvas` | Full canvas snapshot (JSON) |
+| `POST` | `/api/canvas/paint` | Paint a pixel: `{"x":0,"y":0,"color":[255,0,0,255]}` |
+| `POST` | `/api/canvas/cursor` | Update cursor: `{"user_id":"<uuid>","x":0,"y":0}` |
+| `GET` | `/api/node` | This node's UUID |
+| `GET` | `/api/palette` | Current palette colors |
+| `POST` | `/api/palette` | Add color: `{"color":[255,0,0,255]}` |
+| `DELETE` | `/api/palette` | Remove color: `{"color":[255,0,0,255]}` |
+| `POST` | `/api/peers` | Add bootstrap peer: `{"addr":"192.168.1.10:9090"}` |
+| `GET` | `/api/leaderboard` | Pixel ownership ranking |
+
 
 ## Testing
 
 ```
 cargo test --workspace
 cargo clippy --workspace -- -D warnings
+
+# Individual crates
+cargo test -p crdt-core    # CRDT unit + property tests
+cargo test -p crdt-net     # Gossip integration tests
+cargo test -p crdt-app     # API endpoint tests
+ 
+# With output (useful for debugging)
+cargo test -- --nocapture
 ```

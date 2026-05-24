@@ -1,3 +1,7 @@
+//! Configuration for the gossip engine.
+//!
+//! [`GossipConfig`] uses a builder pattern: construct with [`new`](GossipConfig::new),
+//! then chain `.with_*` methods to customize. Only `node_id` and `gossip_addr` are required.
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -5,7 +9,13 @@ use uuid::Uuid;
 
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Configuration for a [`GossipEngine`](crate::GossipEngine) instance.
+///
+/// All fields have sensible defaults: 5-second gossip interval, mDNS
+/// enabled, no bootstrap peers. Use the `with_*` builder methods to
+/// override.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GossipConfig {
     pub node_id: Uuid,
     pub gossip_addr: SocketAddr,
@@ -43,10 +53,6 @@ impl GossipConfig {
     pub fn with_interval(mut self, interval: Duration) -> Self {
         self.interval = interval;
         self
-    }
-
-    pub fn with_interval_secs(self, secs: u64) -> Self {
-        self.with_interval(Duration::from_secs(secs))
     }
 
     pub fn with_advertise_addr(mut self, addr: SocketAddr) -> Self {
