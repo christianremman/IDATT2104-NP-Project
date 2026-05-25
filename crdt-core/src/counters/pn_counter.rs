@@ -1,10 +1,12 @@
+//! Positive-Negative counter.
+//!
+//! Two [`GCounter`]s: one for increments, one for decrements.
+//! Value = increments.value() - decrements.value() (may be negative).
 use super::g_counter::GCounter;
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
 
-/// Positive-Negative counter.
-///
-/// Two GCounters: one for increments, one for decrements.
-/// Value = increments.value() - decrements.value() (may be negative).
+/// Positive-Negative counter. Supports both increment and decrement
+/// by composing two [`GCounter`]s internally.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PNCounter {
@@ -105,6 +107,7 @@ impl DeltaCrdt for PNCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use uuid::Uuid;
 
     fn n(id: u128) -> NodeId {
@@ -173,5 +176,106 @@ mod tests {
         b.increment(n(1));
         assert!(a.compare(&b));
         assert!(!b.compare(&a));
+    }
+    fn arb_pncounter() -> impl Strategy<Value = PNCounter> {
+        proptest::collection::vec(
+            (
+                prop::sample::select(vec![n(1), n(2), n(3)]),
+                proptest::bool::ANY,
+            ),
+            0..=6,
+        )
+        .prop_map(|ops| {
+            let mut c = PNCounter::new();
+            for (node, is_dec) in ops {
+                if is_dec {
+                    c.decrement(node);
+                } else {
+                    c.increment(node);
+                }
+            }
+            c
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn commutative(a in arb_pncounter(), b in arb_pncounter()) {
+            let mut ab = a.clone();
+            ab.merge(b.clone());
+            let mut ba = b.clone();
+            ba.merge(a.clone());
+            prop_assert_eq!(ab, ba);
+        }
+
+        #[test]
+        fn associative(a in arb_pncounter(), b in arb_pncounter(), c in arb_pncounter()) {
+            let mut ab_c = a.clone();
+            ab_c.merge(b.clone());
+            ab_c.merge(c.clone());
+            let mut bc = b.clone();
+            bc.merge(c.clone());
+            let mut a_bc = a.clone();
+            a_bc.merge(bc);
+            prop_assert_eq!(ab_c, a_bc);
+        }
+
+        #[test]
+        fn idempotent(a in arb_pncounter()) {
+            let mut a1 = a.clone();
+            a1.merge(a.clone());
+            prop_assert_eq!(a1, a);
+        }
+    }
+
+    // -- DeltaCrdt tests --
+
+    #[test]
+    fn delta_since_empty_replays_all() {
+        let mut c = PNCounter::new();
+        c.increment(n(1));
+        c.increment(n(1));
+        c.decrement(n(2));
+        let delta = c.delta_since(&PNCounter::new().version());
+        let mut fresh = PNCounter::new();
+        fresh.merge_delta(delta);
+        assert_eq!(fresh.value(), 1);
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let mut c = PNCounter::new();
+        c.increment(n(1));
+        c.decrement(n(2));
+        let delta = c.delta_since(&c.version());
+        assert!(PNCounter::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_lagging_peer() {
+        let mut a = PNCounter::new();
+        let mut b = PNCounter::new();
+        a.increment(n(1));
+        b.merge(a.clone());
+
+        a.increment(n(1));
+        a.decrement(n(1));
+
+        let delta = a.delta_since(&b.version());
+        b.merge_delta(delta);
+        assert_eq!(b.value(), a.value());
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let mut a = PNCounter::new();
+        a.increment(n(1));
+        a.decrement(n(2));
+        let delta = a.delta_since(&PNCounter::new().version());
+        let mut b = PNCounter::new();
+        b.merge_delta(delta.clone());
+        let before = b.value();
+        b.merge_delta(delta);
+        assert_eq!(b.value(), before);
     }
 }

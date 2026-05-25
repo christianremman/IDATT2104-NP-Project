@@ -1,6 +1,18 @@
+//! Multi-Value Register (MVRegister) CRDT.
+//!
+//! Unlike [`LWWRegister`](super::LWWRegister) which picks one winner,
+//! `MVRegister` preserves all concurrent writes. Sequential writes
+//! replace previous values, meaning concurrent writes accumulate. The caller
+//! decides how to resolve multiple values.
 use crate::clocks::{ClockOrder, VectorClock};
 use crate::traits::{Crdt, DeltaCrdt};
 
+/// Multi-Value Register.
+///
+/// Tracks a set of `(VectorClock, T)` entries. When two writes are
+/// causally ordered (one happened-before the other), the later one
+/// replaces the earlier. When two writes are concurrent (neither
+/// dominates), both are kept. Reading returns all active values.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub struct MVRegister<T> {
@@ -27,6 +39,11 @@ impl<T: Clone + PartialEq> MVRegister<T> {
         Self::default()
     }
 
+    /// Write a new value with the given vector clock.
+    ///
+    /// Removes entries dominated by the new clock (the new write
+    /// supersedes them). If the new write is itself dominated by an
+    /// existing entry, it is discarded. Concurrent entries coexist.
     pub fn write(&mut self, value: T, clock: VectorClock) {
         // Remove entries dominated by or equal to the new clock (same logical time = replace).
         self.entries.retain(|(vc, _)| {
@@ -218,6 +235,90 @@ mod tests {
         rb.write(2u32, vc2);
         ra.merge(rb);
         assert_eq!(ra.value(), vec![2]);
+    }
+
+    #[test]
+    fn delta_since_empty_replays_all() {
+        let mut r = MVRegister::new();
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        r.write(42u32, vc);
+        let delta = r.delta_since(&VectorClock::new());
+        let mut fresh = MVRegister::new();
+        fresh.merge_delta(delta);
+        assert_eq!(fresh.value(), vec![42]);
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let mut r = MVRegister::new();
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        r.write(42u32, vc);
+        let delta = r.delta_since(&r.version());
+        assert!(MVRegister::<u32>::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_sequential_write() {
+        let mut a = MVRegister::new();
+        let mut b = MVRegister::new();
+
+        let mut vc1 = VectorClock::new();
+        vc1.increment(n(1));
+        a.write(1u32, vc1.clone());
+        b.merge(a.clone());
+
+        let mut vc2 = vc1.clone();
+        vc2.increment(n(1));
+        a.write(2u32, vc2);
+
+        let delta = a.delta_since(&b.version());
+        b.merge_delta(delta);
+        assert_eq!(b.value(), vec![2]);
+    }
+
+    #[test]
+    fn delta_preserves_concurrent_values() {
+        let mut r = MVRegister::new();
+        let mut vc_a = VectorClock::new();
+        vc_a.increment(n(1));
+        let mut vc_b = VectorClock::new();
+        vc_b.increment(n(2));
+        r.write(1u32, vc_a);
+        r.write(2u32, vc_b);
+
+        let delta = r.delta_since(&VectorClock::new());
+        let mut fresh = MVRegister::new();
+        fresh.merge_delta(delta);
+        let mut vals = fresh.value();
+        vals.sort();
+        assert_eq!(vals, vec![1, 2]);
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let mut r = MVRegister::new();
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        r.write(42u32, vc);
+        let delta = r.delta_since(&VectorClock::new());
+        let mut b = MVRegister::new();
+        b.merge_delta(delta.clone());
+        let before = b.value();
+        b.merge_delta(delta);
+        assert_eq!(b.value(), before);
+    }
+
+    #[test]
+    fn version_includes_detects_lagging() {
+        let mut r = MVRegister::new();
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        r.write(42u32, vc);
+        let fresh = VectorClock::new();
+        assert!(!MVRegister::<u32>::version_includes(&fresh, &r.version()));
+        assert!(MVRegister::<u32>::version_includes(&r.version(), &fresh));
     }
 
     proptest! {

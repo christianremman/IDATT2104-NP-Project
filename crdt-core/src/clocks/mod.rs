@@ -1,13 +1,17 @@
+//! Tracking via vector clocks.
+//!
+//! [`VectorClock`] is the foundational primitive used by other CRDTs
+//! for timestamp generation and ordering.
 use std::collections::HashMap;
 
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
 
-/// Causality primitive used throughout the canvas CRDT.
+/// Causality primitive for tracking events across nodes.
 ///
 /// Tracks the number of events seen from each node. A missing entry is
 /// equivalent to a count of zero, so `{A:1}` and `{A:1, B:0}` are equal.
 ///
-/// Used directly by [`super::registers::MVRegister`] to detect concurrent
+/// Used by [`super::registers::MVRegister`] to detect concurrent
 /// writes, and as a Lamport timestamp source for [`super::registers::LWWRegister`].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -238,6 +242,63 @@ mod tests {
         b.increment(n(1));
         assert!(a.compare(&b));
         assert!(!b.compare(&a));
+    }
+
+    #[test]
+    fn delta_since_empty_replays_all() {
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        vc.increment(n(2));
+        let delta = vc.delta_since(&VectorClock::new());
+        let mut fresh = VectorClock::new();
+        fresh.merge_delta(delta);
+        assert_eq!(fresh, vc);
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        vc.increment(n(2));
+        let delta = vc.delta_since(&vc.version());
+        assert!(VectorClock::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_lagging_peer() {
+        let mut a = VectorClock::new();
+        let mut b = VectorClock::new();
+        a.increment(n(1));
+        b.merge(a.clone());
+
+        a.increment(n(1));
+        a.increment(n(2));
+
+        let delta = a.delta_since(&b.version());
+        b.merge_delta(delta);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let mut a = VectorClock::new();
+        a.increment(n(1));
+        a.increment(n(2));
+        let delta = a.delta_since(&VectorClock::new());
+        let mut b = VectorClock::new();
+        b.merge_delta(delta.clone());
+        let snapshot = b.clone();
+        b.merge_delta(delta);
+        assert_eq!(b, snapshot);
+    }
+
+    #[test]
+    fn version_includes_detects_lagging() {
+        let mut a = VectorClock::new();
+        a.increment(n(1));
+        let fresh = VectorClock::new();
+        assert!(!VectorClock::version_includes(&fresh, &a.version()));
+        assert!(VectorClock::version_includes(&a.version(), &fresh));
     }
 
     proptest! {
