@@ -13,11 +13,11 @@ or can be connected manually across subnets using bootstrap addresses.
 The canvas, palette, user presence, and cursor positions all replicate
 across the mesh without any central server or coordination.
 
-The project includes a generalt purpose CRDTs library, which has implementation of multiple state-based crdts. These have support for using time deltas to improve performance, where only the recently applied chages to the state are used. 
+The project includes a general-purpose CRDTs library, which has implementation of multiple state-based crdts. These have support for using time deltas to improve performance, where only the recently applied changes to the state are used. 
 It also includes a networking library with a generic gossip engine that
 works with any type implementing the DeltaCrdt trait.
 
-The application ties these more general purpose libraries together to show of their functionality. It is a proof-of-consept application, to show of the use of the crdts. However, it does not use all of them. It is importaint to note we have focused on not tieng the libraries directly to the application, so they can easily be used for other types of applications
+The application ties these more general purpose libraries together to show off their functionality. It is a proof-of-concept application, to show off the use of the crdts. However, it does not use all of them. It is important to note we have focused on not tieng the libraries directly to the application, so they can easily be used for other types of applications
 
 
 ## Project structure
@@ -55,7 +55,7 @@ and embedded into the Rust binary via `rust-embed`, so a single
 executable ships the entire application.
  
 Dependencies flow inward: `crdt-app` depends on both libraries, but the
-libraries know nothing about canvases or pixels.They are seperate layers,
+libraries know nothing about canvases or pixels.They are separate layers,
 that has its own responsibility and communicates through defined interfaces.
  
 ## Implemented functionality
@@ -90,10 +90,10 @@ LWWRegister, ORSet). The remaining are implemented and tested in
 `crdt-core` as part of the library, available for other applications.
  
 
-## Key Design Desitions
+## Key design decisions
 
 ### The VectorClock
-A importaint design desition is that our app uses one `VectorClock` on
+A important design desition is that our app uses one `VectorClock` on
 `CanvasDocument`. This is the timestamp source for everything: LWW pixel
 registers, ORSet tags, and delta computation.
 
@@ -109,7 +109,7 @@ problems:
    and `advance_ts` (which bumps the counter), another task could call
    `mutate` and get a timestamp lower than what was just merged.
 
-Moving the clock into the document eliminateed both. The clock merges
+Moving the clock into the document eliminated both. The clock merges
 automatically with the rest of the state, and `increment` is called
 inside the same `send_modify` closure as the mutation.
 
@@ -118,7 +118,7 @@ counter. It sets it to `max(own_counter, max_across_all_nodes) + 1`.
 Without this, a node that merges a peer's state and then paints can
 generate a timestamp *lower* than what it just observed, and lose in LWW even though it painted later.
 
-### Synchronus mutations
+### Synchronous mutations
 All canvas state lives inside a `tokio::sync::watch::Sender`. Every
 mutation, either a paint, gossip merge, or user join,  goes through
 `send_modify`, which is synchronous. The closure runs to completion
@@ -136,7 +136,7 @@ This has two benefits:
 The tradeoff: the closure blocks a tokio worker thread for its
 duration. For our 256×256 canvas, merge and delta computation is 
 really fast. If the document grew large enough for merge to take
-up a significan time, moving to `spawn_blocking` would be warranted.
+up a significant time, moving to `spawn_blocking` would be warranted.
  
 The `watch` channel was chosen over `RwLock` because it provides
 change notification for free. WebSocket handlers and the gossip
@@ -206,7 +206,7 @@ the whole mesh.
   cleaned up on merge. An `ORMap` would give full CRDT guarantees at
   the cost of permanent tombstones per departed peer. Since we dont
   have GC, the use of `HashMap` lets us make sure the map doesn't grow 
-  indefently.
+  indefinitely.
 
 
 ## External dependencies

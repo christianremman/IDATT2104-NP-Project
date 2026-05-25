@@ -420,6 +420,18 @@ mod tests {
         let (state, _rx) = crate::state::AppState::new(Uuid::new_v4());
         router(state)
     }
+    #[test]
+    fn session_counter_first_register() {
+        let counter = AtomicUsize::new(0);
+        assert_eq!(counter.fetch_add(1, Ordering::Relaxed), 0); // first
+    }
+
+    #[test]
+    fn session_counter_last_deregister() {
+        let counter = AtomicUsize::new(2);
+        assert_ne!(counter.fetch_sub(1, Ordering::Relaxed), 1); // not last
+        assert_eq!(counter.fetch_sub(1, Ordering::Relaxed), 1); // last
+    }
 
     #[tokio::test]
     async fn get_canvas_returns_empty_snapshot() {

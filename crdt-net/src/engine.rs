@@ -542,7 +542,7 @@ async fn handle_connection<T>(
             known_peers,
             departed,
         })) => {
-            info!(%peer, sender = %from.node_id, "received Sync, merging");
+            debug!(%peer, sender = %from.node_id, "received Sync, merging");
             // Absorb tombstones FIRST so a freshly-tombstoned UUID in
             // `known_peers` can't be re-added by the same message.
             registry.absorb_tombstones(&departed);

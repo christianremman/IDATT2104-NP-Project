@@ -252,7 +252,7 @@ canvas state. The same data as `GET /api/canvas`.
     "palette": [[255, 0, 0, 255]],
     "paint_total": 42,
     "leaderboard": [{ "peer_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "pixels": 30 }],
-    "cursors": { "aa1b2c3d4-e5f6-7890-abcd-ef1234567890": [10, 20] }
+    "cursors": { "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [10, 20] }
   }
 }
 ```
@@ -267,7 +267,7 @@ since the client's last update:
   "type": "delta",
   "payload": {
     "pixels": { "3,4": [255, 255, 0, 255] },
-    "active_peers": ["a1b2c3d4-e5f6-7890-abcd-ef1234567890.", "e5f67890-e5f6-7890-abcd-ef1234567890"],
+    "active_peers": ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "e5f67890-e5f6-7890-abcd-ef1234567890"],
     "paint_total": 43
   }
 }

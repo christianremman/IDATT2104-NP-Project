@@ -167,7 +167,6 @@ impl AppState {
     /// for the guard to drop.
     ///
     /// Use this for quick reads like serializing an HTTP response.
-    /// For longer-lived access, use [`snapshot`](Self::snapshot) instead.
     pub fn canvas(&self) -> watch::Ref<'_, CanvasDocument> {
         self.canvas.borrow()
     }
