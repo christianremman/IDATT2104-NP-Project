@@ -99,6 +99,7 @@ impl DeltaCrdt for GCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use uuid::Uuid;
 
     fn n(id: u128) -> NodeId {
@@ -177,5 +178,104 @@ mod tests {
         b.increment(n(1));
         assert!(a.compare(&b));
         assert!(!b.compare(&a));
+    }
+    #[test]
+    fn delta_since_empty_replays_all() {
+        let mut c = GCounter::new();
+        c.increment(n(1));
+        c.increment(n(2));
+        let delta = c.delta_since(&HashMap::new());
+        let mut fresh = GCounter::new();
+        fresh.merge_delta(delta);
+        assert_eq!(fresh.value(), 2);
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let mut c = GCounter::new();
+        c.increment(n(1));
+        let delta = c.delta_since(&c.version());
+        assert!(GCounter::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_lagging_peer() {
+        let mut a = GCounter::new();
+        let mut b = GCounter::new();
+        a.increment(n(1));
+        b.merge(a.clone());
+        // A pulls ahead
+        a.increment(n(1));
+        a.increment(n(1));
+        let delta = a.delta_since(&b.version());
+        b.merge_delta(delta);
+        assert_eq!(b.value(), a.value());
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let mut a = GCounter::new();
+        a.increment(n(1));
+        let delta = a.delta_since(&HashMap::new());
+        let mut b = GCounter::new();
+        b.merge_delta(delta.clone());
+        let before = b.value();
+        b.merge_delta(delta);
+        assert_eq!(b.value(), before);
+    }
+
+    #[test]
+    fn version_includes_detects_lagging() {
+        let mut a = GCounter::new();
+        a.increment(n(1));
+        let fresh = HashMap::new();
+        assert!(!GCounter::version_includes(&fresh, &a.version()));
+        assert!(GCounter::version_includes(&a.version(), &fresh));
+    }
+    fn arb_gcounter() -> impl Strategy<Value = GCounter> {
+        proptest::collection::hash_map(
+            prop::sample::select(vec![n(1), n(2), n(3)]),
+            1u64..=10u64,
+            0..=3,
+        )
+        .prop_map(|counts| {
+            let mut c = GCounter::new();
+            for (node, count) in counts {
+                for _ in 0..count {
+                    c.increment(node);
+                }
+            }
+            c
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn commutative(a in arb_gcounter(), b in arb_gcounter()) {
+            let mut ab = a.clone();
+            ab.merge(b.clone());
+            let mut ba = b.clone();
+            ba.merge(a.clone());
+            prop_assert_eq!(ab, ba);
+        }
+
+        #[test]
+        fn associative(a in arb_gcounter(), b in arb_gcounter(), c in arb_gcounter()) {
+            let mut ab_c = a.clone();
+            ab_c.merge(b.clone());
+            ab_c.merge(c.clone());
+            let mut bc = b.clone();
+            bc.merge(c.clone());
+            let mut a_bc = a.clone();
+            a_bc.merge(bc);
+            prop_assert_eq!(ab_c, a_bc);
+        }
+
+        #[test]
+        fn idempotent(a in arb_gcounter()) {
+            let mut a1 = a.clone();
+            a1.merge(a.clone());
+            prop_assert_eq!(a1, a);
+        }
     }
 }

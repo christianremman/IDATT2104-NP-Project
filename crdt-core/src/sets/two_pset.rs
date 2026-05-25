@@ -105,6 +105,8 @@ where
 mod tests {
     use super::*;
     use crate::traits::Crdt;
+    use proptest::collection::vec as prop_vec;
+    use proptest::prelude::*;
 
     #[test]
     fn insert_and_contains() {
@@ -197,5 +199,48 @@ mod tests {
 
         assert!(a.compare(&b));
         assert!(!b.compare(&a));
+    }
+    fn arb_twopset() -> impl Strategy<Value = TwoPSet<u8>> {
+        prop_vec((0u8..=3u8, proptest::bool::ANY), 0..=6).prop_map(|ops| {
+            let mut set = TwoPSet::new();
+            for (elem, is_remove) in ops {
+                if is_remove {
+                    set.remove(elem);
+                } else {
+                    set.insert(elem);
+                }
+            }
+            set
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn commutative(a in arb_twopset(), b in arb_twopset()) {
+            let mut ab = a.clone();
+            ab.merge(b.clone());
+            let mut ba = b.clone();
+            ba.merge(a.clone());
+            prop_assert_eq!(ab, ba);
+        }
+
+        #[test]
+        fn associative(a in arb_twopset(), b in arb_twopset(), c in arb_twopset()) {
+            let mut ab_c = a.clone();
+            ab_c.merge(b.clone());
+            ab_c.merge(c.clone());
+            let mut bc = b.clone();
+            bc.merge(c.clone());
+            let mut a_bc = a.clone();
+            a_bc.merge(bc);
+            prop_assert_eq!(ab_c, a_bc);
+        }
+
+        #[test]
+        fn idempotent(a in arb_twopset()) {
+            let mut a1 = a.clone();
+            a1.merge(a.clone());
+            prop_assert_eq!(a1, a);
+        }
     }
 }

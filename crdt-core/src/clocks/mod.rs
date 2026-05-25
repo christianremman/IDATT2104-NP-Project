@@ -244,6 +244,63 @@ mod tests {
         assert!(!b.compare(&a));
     }
 
+    #[test]
+    fn delta_since_empty_replays_all() {
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        vc.increment(n(2));
+        let delta = vc.delta_since(&VectorClock::new());
+        let mut fresh = VectorClock::new();
+        fresh.merge_delta(delta);
+        assert_eq!(fresh, vc);
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let mut vc = VectorClock::new();
+        vc.increment(n(1));
+        vc.increment(n(2));
+        let delta = vc.delta_since(&vc.version());
+        assert!(VectorClock::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_lagging_peer() {
+        let mut a = VectorClock::new();
+        let mut b = VectorClock::new();
+        a.increment(n(1));
+        b.merge(a.clone());
+
+        a.increment(n(1));
+        a.increment(n(2));
+
+        let delta = a.delta_since(&b.version());
+        b.merge_delta(delta);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let mut a = VectorClock::new();
+        a.increment(n(1));
+        a.increment(n(2));
+        let delta = a.delta_since(&VectorClock::new());
+        let mut b = VectorClock::new();
+        b.merge_delta(delta.clone());
+        let snapshot = b.clone();
+        b.merge_delta(delta);
+        assert_eq!(b, snapshot);
+    }
+
+    #[test]
+    fn version_includes_detects_lagging() {
+        let mut a = VectorClock::new();
+        a.increment(n(1));
+        let fresh = VectorClock::new();
+        assert!(!VectorClock::version_includes(&fresh, &a.version()));
+        assert!(VectorClock::version_includes(&a.version(), &fresh));
+    }
+
     proptest! {
         #[test]
         fn commutative(a in arb_clock(), b in arb_clock()) {

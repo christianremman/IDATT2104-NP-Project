@@ -82,6 +82,7 @@ where
 mod tests {
     use super::*;
     use crate::traits::Crdt;
+    use proptest::prelude::*;
 
     #[test]
     fn insert_and_contains() {
@@ -153,5 +154,45 @@ mod tests {
 
         assert!(a.compare(&b)); // a in b
         assert!(!b.compare(&a)); // b not in a
+    }
+
+    fn arb_gset() -> impl Strategy<Value = GSet<u8>> {
+        proptest::collection::hash_set(0u8..=5u8, 0..=4).prop_map(|elements| {
+            let mut set = GSet::new();
+            for e in elements {
+                set.insert(e);
+            }
+            set
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn commutative(a in arb_gset(), b in arb_gset()) {
+            let mut ab = a.clone();
+            ab.merge(b.clone());
+            let mut ba = b.clone();
+            ba.merge(a.clone());
+            prop_assert_eq!(ab, ba);
+        }
+
+        #[test]
+        fn associative(a in arb_gset(), b in arb_gset(), c in arb_gset()) {
+            let mut ab_c = a.clone();
+            ab_c.merge(b.clone());
+            ab_c.merge(c.clone());
+            let mut bc = b.clone();
+            bc.merge(c.clone());
+            let mut a_bc = a.clone();
+            a_bc.merge(bc);
+            prop_assert_eq!(ab_c, a_bc);
+        }
+
+        #[test]
+        fn idempotent(a in arb_gset()) {
+            let mut a1 = a.clone();
+            a1.merge(a.clone());
+            prop_assert_eq!(a1, a);
+        }
     }
 }

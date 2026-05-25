@@ -132,6 +132,7 @@ where
 mod tests {
     use super::*;
     use crate::traits::Crdt;
+    use proptest::prelude::*;
     use uuid::Uuid;
 
     fn node(n: u128) -> NodeId {
@@ -273,5 +274,61 @@ mod tests {
 
         assert!(a.compare(&b));
         assert!(!b.compare(&a));
+    }
+
+    fn nodes_a() -> [NodeId; 2] {
+        [node(1), node(2)]
+    }
+    fn nodes_b() -> [NodeId; 2] {
+        [node(3), node(4)]
+    }
+    fn nodes_c() -> [NodeId; 2] {
+        [node(5), node(6)]
+    }
+
+    fn arb_lwwmap_for(nodes: [NodeId; 2]) -> impl Strategy<Value = LWWMap<u8, u32>> {
+        proptest::collection::vec((0u8..=3u8, 0u32..=100u32, 0..2usize), 0..=5).prop_map(
+            move |ops| {
+                let mut map = LWWMap::new();
+                for (i, (key, value, node_idx)) in ops.into_iter().enumerate() {
+                    map.set(key, value, (i + 1) as u64, nodes[node_idx]);
+                }
+                map
+            },
+        )
+    }
+
+    proptest! {
+        #[test]
+        fn commutative(a in arb_lwwmap_for(nodes_a()), b in arb_lwwmap_for(nodes_b())) {            
+            let mut ab = a.clone();
+            ab.merge(b.clone());
+            let mut ba = b.clone();
+            ba.merge(a.clone());
+            prop_assert_eq!(ab, ba);
+        }
+
+        #[test]
+        fn associative(
+            a in arb_lwwmap_for(nodes_a()),
+            b in arb_lwwmap_for(nodes_b()),
+            c in arb_lwwmap_for(nodes_c()),
+        ) {
+            let mut ab_c = a.clone();
+            ab_c.merge(b.clone());
+            ab_c.merge(c.clone());
+            let mut bc = b.clone();
+            bc.merge(c.clone());
+            let mut a_bc = a.clone();
+            a_bc.merge(bc);
+            prop_assert_eq!(ab_c, a_bc);
+        }
+
+        #[test]
+        fn idempotent(a in arb_lwwmap_for(nodes_a())) {
+             let mut a1 = a.clone();
+            a1.merge(a.clone());
+            prop_assert_eq!(a1, a);
+        }
     }
 }
