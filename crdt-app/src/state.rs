@@ -109,7 +109,7 @@ impl AppState {
     /// Delegates to [`GossipEngine::add_bootstrap`]. `api.rs` only holds
     /// `Arc<AppState>`, so it can't reach the engine directly. The engine
     /// discovers the peer's UUID on first successful gossip exchange and
-    /// migrates it from the bootstrap set into the resolved peer map. TODO: Explain this simpler
+    /// migrates it from the bootstrap set into the resolved peer map.
     ///
     /// No-op if the engine hasn't been wired in yet via `set_engine`.
     pub fn add_bootstrap(&self, addr: SocketAddr) {
