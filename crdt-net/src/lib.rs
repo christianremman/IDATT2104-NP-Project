@@ -6,7 +6,7 @@
 //! with a new peer, and incremental [`SyncDelta`](GossipMessage::SyncDelta)
 //! for established peers. Peer discovery is handled via mDNS on the local
 //! subnet and peer-list gossip for transitive cross-subnet discovery.
-//! 
+//!
 //! The engine requires [`DeltaCrdt`](crdt_core::DeltaCrdt) (which
 //! extends [`Crdt`](crdt_core::Crdt)). Full-state sync uses the
 //! `Crdt::merge` trait, while delta sync uses `DeltaCrdt::delta_since`.
