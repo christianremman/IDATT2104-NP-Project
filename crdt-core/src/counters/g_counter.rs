@@ -1,10 +1,12 @@
+//! Grow-only counter.
+//!
+//! Each node tracks its own increment count. Value = sum of all nodes.
+//! Merge = element-wise max. Never decreases.
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
 use std::collections::HashMap;
 
-/// Grow-only counter.
-///
-/// Each node tracks its own increment count. Value = sum of all nodes.
-/// Merge = element-wise max. Never decreases.
+/// Grow-only counter. Each node maintains its own monotonic count;
+/// the value is the sum across all nodes. Merge is element-wise max.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct GCounter {

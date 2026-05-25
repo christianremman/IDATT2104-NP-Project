@@ -125,6 +125,8 @@ where
         self.entries.entry(element).or_default().insert(tag);
     }
 
+    /// Remove an element by tombstoning all its current tags.
+    /// Returns `true` if the element was present.
     pub fn remove(&mut self, element: &T) -> bool {
         if let Some(tags) = self.entries.remove(element) {
             self.removed_tags.extend(tags);
@@ -133,6 +135,7 @@ where
         false
     }
 
+    /// Returns `true` if the element has at least one live (non-tombstoned) tag.
     pub fn contains(&self, element: &T) -> bool {
         self.entries.contains_key(element)
     }

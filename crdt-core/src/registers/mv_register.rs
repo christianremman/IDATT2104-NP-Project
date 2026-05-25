@@ -1,6 +1,18 @@
+//! Multi-Value Register (MVRegister) CRDT.
+//!
+//! Unlike [`LWWRegister`](super::LWWRegister) which picks one winner,
+//! `MVRegister` preserves all concurrent writes. Sequential writes
+//! replace previous values, meaning concurrent writes accumulate. The caller
+//! decides how to resolve multiple values.
 use crate::clocks::{ClockOrder, VectorClock};
 use crate::traits::{Crdt, DeltaCrdt};
 
+/// Multi-Value Register.
+///
+/// Tracks a set of `(VectorClock, T)` entries. When two writes are
+/// causally ordered (one happened-before the other), the later one
+/// replaces the earlier. When two writes are concurrent (neither
+/// dominates), both are kept. Reading returns all active values.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug)]
 pub struct MVRegister<T> {
@@ -27,6 +39,11 @@ impl<T: Clone + PartialEq> MVRegister<T> {
         Self::default()
     }
 
+    /// Write a new value with the given vector clock.
+    ///
+    /// Removes entries dominated by the new clock (the new write
+    /// supersedes them). If the new write is itself dominated by an
+    /// existing entry, it is discarded. Concurrent entries coexist.
     pub fn write(&mut self, value: T, clock: VectorClock) {
         // Remove entries dominated by or equal to the new clock (same logical time = replace).
         self.entries.retain(|(vc, _)| {

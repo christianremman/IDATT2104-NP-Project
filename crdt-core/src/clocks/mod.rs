@@ -1,13 +1,17 @@
+//! Tracking via vector clocks.
+//!
+//! [`VectorClock`] is the foundational primitive used by other CRDTs
+//! for timestamp generation and ordering.
 use std::collections::HashMap;
 
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
 
-/// Causality primitive used throughout the canvas CRDT.
+/// Causality primitive for tracking events across nodes.
 ///
 /// Tracks the number of events seen from each node. A missing entry is
 /// equivalent to a count of zero, so `{A:1}` and `{A:1, B:0}` are equal.
 ///
-/// Used directly by [`super::registers::MVRegister`] to detect concurrent
+/// Used by [`super::registers::MVRegister`] to detect concurrent
 /// writes, and as a Lamport timestamp source for [`super::registers::LWWRegister`].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

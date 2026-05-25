@@ -23,7 +23,7 @@
 //! - Last browser disconnects (1 -> 0): the UUID is removed.
 //!   Gossip transmits that too.
 //!
-//! ** Notes**
+//! **Notes**
 //!
 //! A node running with zero browsers is still a gossip peer,
 //! it just doesn't appear in `active_peers`.
@@ -377,7 +377,7 @@ async fn stream_deltas(socket: &mut WebSocket, state: &AppState, mut last_seen: 
                 if result.is_err() {
                     break;
                 }
-                // Borrow, compute delta, serialize, drop guard — all sync.
+                // Borrow, compute delta, serialize, drop guard, all sync.
                 let msg = {
                     let doc = rx.borrow_and_update();
                     let delta = doc.delta_since(&last_seen);

@@ -12,14 +12,14 @@
 //! HTTP. On shutdown, axum drains connections (so WebSocket cleanup runs),
 //! then the engine sends Goodbye to peers.
 //!
-//! **Two ports, two protocols**. Each node listens on ports:
+//! **Two ports and two protocols**: Each node listens on ports:
 //!
 //! - `--port` (default 8080): HTTP + WebSocket for browsers. This is
 //!   what you open in web browser.
 //! - `--gossip-port` (default 9090): TCP for peer-to-peer CRDT gossip.
 //!   Browsers never touch this: it's backend-to-backend only.
 //!
-//! **Peer discovery**. Nodes find each other two ways:
+//! **Peer discovery**: Nodes find each other two ways:
 //!
 //! - **Automatic (mDNS):** on the same LAN/WiFi, nodes discover each
 //!   others automatiacally. Just start two nodes and they connect.
@@ -56,7 +56,7 @@ use uuid::Uuid;
 #[derive(clap::Parser)]
 struct Args {
     /// Port for the HTTP server and WebSocket connections.
-    /// This is what browsers connect to (e.g. http://localhost:8080).
+    /// This is what browsers connect to (e.g. `http://localhost:8080`).
     #[arg(long, default_value_t = 8080)]
     port: u16,
 
@@ -66,11 +66,11 @@ struct Args {
     gossip_port: u16,
 
     /// Comma-separated addresses of other nodes' gossip ports to
-    /// connect to on startup. Format: IP:GOSSIP_PORT.
+    /// connect to on startup. Format: `IP:GOSSIP_PORT.`
     /// Not needed on the same LAN (mDNS handles discovery).
     /// One address is enough , peer-list gossip discovers the rest.
     ///
-    /// Example: --peers 192.168.1.10:9090,192.168.1.11:9091
+    /// Example: `--peers 192.168.1.10:9090,192.168.1.11:9091``
     #[arg(long, default_value = "")]
     peers: String,
 

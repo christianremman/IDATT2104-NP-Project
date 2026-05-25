@@ -1,10 +1,12 @@
+//! Positive-Negative counter.
+//!
+//! Two [`GCounter`]s: one for increments, one for decrements.
+//! Value = increments.value() - decrements.value() (may be negative).
 use super::g_counter::GCounter;
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
 
-/// Positive-Negative counter.
-///
-/// Two GCounters: one for increments, one for decrements.
-/// Value = increments.value() - decrements.value() (may be negative).
+/// Positive-Negative counter. Supports both increment and decrement
+/// by composing two [`GCounter`]s internally.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PNCounter {

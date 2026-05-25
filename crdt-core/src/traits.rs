@@ -1,3 +1,9 @@
+//! Core traits that all CRDTs implement.
+//!
+//! [`Crdt`] defines the three operations every CRDT must support:
+//! `value`, `merge`, and `compare`. [`DeltaCrdt`] extends this with
+//! delta-state support for bandwidth-efficient replication (only the
+//! changes since last version seen).
 use uuid::Uuid;
 
 /// Unique identifier for a node in the P2P network.
@@ -47,7 +53,6 @@ pub trait Crdt: Clone {
     /// Network messages can be duplicated or retransmitted safely.
     fn merge(&mut self, other: Self);
 
-    /// Returns `true` if self is a subset of other.
     /// Returns `true` if self is a subset of other.
     ///
     /// If `self.compare(other)` is `true`, then `self.merge(other)` would

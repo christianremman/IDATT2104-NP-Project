@@ -1,5 +1,14 @@
+//! Last-Writer-Wins Register (LWWRegister) CRDT.
+//!
+//! Stores a single value with a timestamp. Concurrent writes are resolved
+//! by highest timestamp, with `node_id` as tiebreaker for equal timestamps.
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
 
+/// Last-Writer-Wins Register.
+///
+/// Each write carries a timestamp and node ID. On merge, the write with
+/// the highest timestamp wins. Equal timestamps are broken by comparing
+/// node IDs (higher UUID wins), ensuring deterministic convergence.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct LWWRegister<T> {
