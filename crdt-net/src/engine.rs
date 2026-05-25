@@ -10,7 +10,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Notify, Semaphore, broadcast, watch};
 use tokio::time;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 use uuid::Uuid;
 
 use crate::config::GossipConfig;
@@ -109,7 +109,10 @@ impl PeerRegistry {
             return;
         }
         self.bootstraps.lock().unwrap().remove(&addr);
-        self.resolved.lock().unwrap().insert(id, addr);
+        let is_new = self.resolved.lock().unwrap().insert(id, addr).is_none();
+        if is_new {
+            tracing::info!(%id, %addr, "peer joined");
+        }
     }
 
     pub(crate) fn add_bootstrap(&self, addr: SocketAddr) {
@@ -143,6 +146,7 @@ impl PeerRegistry {
             self.last_sent.lock().unwrap().remove(&addr);
         }
         self.tombstones.lock().unwrap().insert(id);
+        tracing::info!(%id, "peer departed");
     }
 
     /// Absorb a batch of tombstones learned via gossip.
@@ -538,7 +542,7 @@ async fn handle_connection<T>(
             known_peers,
             departed,
         })) => {
-            debug!(%peer, sender = %from.node_id, "received Sync, merging");
+            info!(%peer, sender = %from.node_id, "received Sync, merging");
             // Absorb tombstones FIRST so a freshly-tombstoned UUID in
             // `known_peers` can't be re-added by the same message.
             registry.absorb_tombstones(&departed);
@@ -717,7 +721,7 @@ fn spawn_ticker<T>(
                                 Err(e) => {
                                     let evicted = registry.mark_failure(addr);
                                     if let Some(id) = evicted {
-                                        debug!(%addr, %id, "peer evicted after repeated failures");
+                                        info!(%addr, %id, "peer evicted after repeated failures");
                                     }
                                     warn!(%addr, error = %e, "gossip send failed");
                                 }
