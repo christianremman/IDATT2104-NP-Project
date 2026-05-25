@@ -96,7 +96,7 @@ impl<T: Clone + PartialEq> DeltaCrdt for MVRegister<T> {
 
     fn delta_since(&self, since: &Self::Version) -> Self::Delta {
         // Include entries whose clock has at least one component strictly
-        // greater than `since` — i.e. `since` does not dominate `vc`.
+        // greater than `since` , i.e. `since` does not dominate `vc`.
         let entries = self
             .entries
             .iter()

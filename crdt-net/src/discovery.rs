@@ -5,7 +5,6 @@
 //! its advertised gossip address as the service location. Each node also
 //! browses for the same service type; resolved entries are inserted into
 //! the engine's peer registry.
-
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
@@ -13,7 +12,7 @@ use std::sync::Arc;
 
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use tokio::sync::Notify;
-use tracing::debug;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::engine::PeerRegistry;
@@ -47,6 +46,7 @@ pub(crate) fn spawn_mdns(
     .map_err(io_other)?;
 
     daemon.register(service).map_err(io_other)?;
+    debug!(%advertise_addr, "mDNS service registered");
     let receiver = daemon.browse(SERVICE_TYPE).map_err(io_other)?;
 
     // The daemon must live for the lifetime of the engine; move it into the
@@ -77,7 +77,7 @@ fn handle_event(self_id: Uuid, registry: &PeerRegistry, event: ServiceEvent) {
     match event {
         ServiceEvent::ServiceResolved(info) => {
             if let Some((id, addr)) = parse_peer(self_id, &info) {
-                debug!(%id, %addr, "mdns resolved peer");
+                info!(%id, %addr, "mdns resolved peer");
                 registry.add_resolved(id, addr);
             }
         }

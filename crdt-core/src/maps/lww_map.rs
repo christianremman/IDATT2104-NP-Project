@@ -4,7 +4,7 @@
 //! Concurrent writes to the same key are resolved by highest
 //! timestamp, with node_id as tiebreaker.
 //! Internally composed of [`LWWRegister`]s, same pattern
-//! as [`TwoPSet`] composing two [`GSet`]s.
+//! as [`TwoPSet`](crate::sets::TwoPSet) composing two [`GSet`](crate::sets::GSet)s.
 use crate::registers::LWWRegister;
 use crate::traits::{Crdt, NodeId};
 use std::collections::HashMap;

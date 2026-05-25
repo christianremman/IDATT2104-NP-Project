@@ -1,4 +1,4 @@
-# `crdt-net` — Implementation Walkthrough
+# `crdt-net` , Implementation Walkthrough
 
 This document explains how the `crdt-net` crate works end-to-end: what each
 file contains, what each method does, how the pieces fit together, and why
@@ -20,7 +20,7 @@ about), and merges any incoming state into its own. New peers join via two
 complementary mechanisms: **mDNS** for zero-config auto-discovery on the local
 subnet, and **peer-list gossip** for transitive membership propagation across
 networks where mDNS doesn't traverse. The crate is **generic over the CRDT
-type** — it knows nothing about `CanvasDocument`. It only needs
+type** , it knows nothing about `CanvasDocument`. It only needs
 `T: Crdt + Serialize + DeserializeOwned + Send + Sync + 'static`.
 
 It is **not** an application. It does not own application state, does not
@@ -66,13 +66,13 @@ There are two **channels** between the app and the engine:
 | `watch::Receiver<T>` | app → engine | the latest local snapshot the engine should gossip |
 | `broadcast::Sender<T>` | engine → app | every state the engine produced by merging a remote message |
 
-The engine **owns neither side's `Sender`** — the app owns both. That is why
+The engine **owns neither side's `Sender`** , the app owns both. That is why
 the engine has no notion of "the canvas". It just reads-and-sends, then
 receives-and-merges-and-publishes.
 
 The **forwarder** in the diagram is a small piece of glue the app must
 provide: it subscribes to the broadcast and pushes every value back into the
-watch (merging, not overwriting — section 7 explains why). Without the
+watch (merging, not overwriting , section 7 explains why). Without the
 forwarder, the engine's outgoing gossip would never reflect incoming merges.
 
 ---
@@ -103,7 +103,7 @@ Just module declarations and a small re-export surface so consumers can
 `use crdt_net::{GossipEngine, GossipConfig, GossipMessage, MAX_FRAME}`
 without reaching into modules.
 
-### 3.2 `config.rs` — `GossipConfig`
+### 3.2 `config.rs` , `GossipConfig`
 
 A plain data struct with a small builder, mirroring the spec plus two extras
 for discovery.
@@ -126,12 +126,11 @@ Builder methods:
 | `new(node_id, gossip_addr)` | Defaults: `peers = []`, `interval = 5s`, `enable_mdns = true` |
 | `with_peers(peers)` | Replace the initial bootstrap list |
 | `with_interval(duration)` | Set the gossip tick period |
-| `with_interval_secs(secs)` | Convenience over `with_interval` |
 | `with_advertise_addr(addr)` | Override the address put into outgoing `from`/mDNS records |
 | `with_mdns(bool)` | Disable mDNS (tests, server-only deployments) |
 
 **`advertise_addr` resolution** (done at engine startup, not in the config):
-if explicitly set, used as-is. Otherwise, derived from `gossip_addr` —
+if explicitly set, used as-is. Otherwise, derived from `gossip_addr` ,
 non-wildcard IPs are used directly, and wildcard binds (`0.0.0.0` / `::`)
 resolve to a non-loopback local IPv4 via the `local_ip_address` crate. The
 port always comes from the actually-bound socket so OS-assigned ports
@@ -140,7 +139,7 @@ port always comes from the actually-bound socket so OS-assigned ports
 **`interval`** is stored as `Duration` (not `u64 secs` like the spec) so
 tests can use millisecond-scale intervals without surprises.
 
-### 3.3 `message.rs` — wire format
+### 3.3 `message.rs` , wire format
 
 Three types and two functions. The on-the-wire protocol carries both CRDT
 state and peer membership in one envelope.
@@ -188,7 +187,7 @@ so tombstones spread across the mesh exactly like state.
 `Goodbye` is structurally `Sync` minus the `state` field. A leaving peer
 emits one to a few survivors so the mesh learns of the departure
 immediately instead of waiting for the K-consecutive-failure heuristic to
-fire. The `T` parameter on `Goodbye` is phantom — the variant uses no
+fire. The `T` parameter on `Goodbye` is phantom , the variant uses no
 field of type `T`, so a sender can construct `GossipMessage::<()>::Goodbye
 {...}` without parameterizing the engine over `T`.
 
@@ -202,24 +201,24 @@ field of type `T`, so a sender can construct `GossipMessage::<()>::Goodbye
 └────────────┴──────────────────────────┘
 ```
 
-- **`write_frame`** — serialise the message to JSON via `serde_json::to_vec`,
+- **`write_frame`** , serialise the message to JSON via `serde_json::to_vec`,
   refuse if larger than `MAX_FRAME`, write the 4-byte length, write the
   body, flush. Returns `io::Error::other` on serialisation failure (which
   shouldn't happen for any valid `T: Serialize`).
-- **`read_frame`** — read 4 bytes, decode the length, refuse if larger than
+- **`read_frame`** , read 4 bytes, decode the length, refuse if larger than
   `MAX_FRAME` (which protects the listener from an attacker claiming a 4 GiB
   message and OOM-ing us), allocate exactly that many bytes, read them,
   deserialize.
 
-The `MAX_FRAME` cap is deliberately generous — the full `CanvasDocument`
-will be well under a megabyte even at full saturation — but small enough
+The `MAX_FRAME` cap is deliberately generous , the full `CanvasDocument`
+will be well under a megabyte even at full saturation , but small enough
 that a single garbage peer can't allocate gigabytes on our heap.
 
-### 3.4 `engine.rs` — the engine
+### 3.4 `engine.rs` , the engine
 
 The biggest source file. It is structured as:
 
-- The internal **`PeerRegistry`** — peer state, keyed by UUID.
+- The internal **`PeerRegistry`** , peer state, keyed by UUID.
 - The public **`GossipEngine`** struct + its methods.
 - A `Drop` impl that signals shutdown.
 - Two private free functions: **`spawn_listener`** and **`spawn_ticker`**,
@@ -281,7 +280,7 @@ pub struct GossipEngine {
 }
 ```
 
-### 3.5 `discovery.rs` — mDNS announce + browse
+### 3.5 `discovery.rs` , mDNS announce + browse
 
 Wraps the `mdns-sd` crate so the engine can publish itself on the local
 subnet and learn about other nodes that did the same. Two responsibilities,
@@ -324,19 +323,19 @@ where T: Crdt + Serialize + DeserializeOwned + Send + Sync + 'static
 
 **What it does**, line by line:
 
-1. **`TcpListener::bind(config.gossip_addr).await?`** — bind the TCP
+1. **`TcpListener::bind(config.gossip_addr).await?`** , bind the TCP
    listener. If this fails (port in use, permission denied), `run` returns
    `Err` without spawning anything. This is the *only* failure path of
    `run`; once it returns `Ok`, nothing the engine does can fail to the
-   caller — runtime errors are logged via `tracing` and swallowed.
-2. **`listener.local_addr()?`** — capture the actual address.
-3. **`resolve_advertise_addr(...)`** — compute the address peers should
+   caller , runtime errors are logged via `tracing` and swallowed.
+2. **`listener.local_addr()?`** , capture the actual address.
+3. **`resolve_advertise_addr(...)`** , compute the address peers should
    dial, given config + the real bound port.
 4. Build the `PeerRegistry`, seed it with `config.peers` as bootstraps.
 5. Build the shutdown `Notify`.
-6. **`spawn_listener::<T>(...)`** — spawn the accept loop.
-7. **`spawn_ticker::<T>(...)`** — spawn the periodic gossip loop.
-8. **`discovery::spawn_mdns(...)`** if `enable_mdns` — announce + browse.
+6. **`spawn_listener::<T>(...)`** , spawn the accept loop.
+7. **`spawn_ticker::<T>(...)`** , spawn the periodic gossip loop.
+8. **`discovery::spawn_mdns(...)`** if `enable_mdns` , announce + browse.
    mDNS init failure is non-fatal: it logs a warning and continues without
    auto-discovery.
 9. Return the handle.
@@ -346,14 +345,14 @@ After `run` returns, two or three tokio tasks are alive and running
 
 ### Accessors
 
-- **`local_addr() -> SocketAddr`** — the actual bound socket address.
-- **`advertise_addr() -> SocketAddr`** — what we put in outgoing `from`
+- **`local_addr() -> SocketAddr`** , the actual bound socket address.
+- **`advertise_addr() -> SocketAddr`** , what we put in outgoing `from`
   fields and mDNS records.
-- **`node_id() -> Uuid`** — our identity.
+- **`node_id() -> Uuid`** , our identity.
 
 ### `GossipEngine::add_peer(node_id, addr)`
 
-Add a peer whose UUID we already know — e.g., from an mDNS resolution or
+Add a peer whose UUID we already know , e.g., from an mDNS resolution or
 from an explicit `--peer uuid@addr` config (not currently in the demo
 CLI, but available programmatically). Goes straight into the resolved
 map.
@@ -403,7 +402,7 @@ before dropping the engine lets the rest of the mesh learn of the
 departure immediately, instead of having to wait for the K-failure
 heuristic to fire.
 
-`Drop` only calls `shutdown.notify_waiters()` — it does **not** try to
+`Drop` only calls `shutdown.notify_waiters()` , it does **not** try to
 send a Goodbye, because doing async work in a sync `Drop` is fragile.
 Callers who want a clean exit must `await graceful_shutdown()` before the
 engine falls out of scope.
@@ -445,7 +444,7 @@ loop {
 
 Pure accept loop. Each accepted TCP connection is handed off to a
 short-lived task running `handle_connection`. The accept loop never blocks
-on a slow peer — the slow peer just keeps its own dedicated handler task
+on a slow peer , the slow peer just keeps its own dedicated handler task
 busy.
 
 **Connection cap.** The listener holds a `tokio::sync::Semaphore` with
@@ -453,10 +452,10 @@ busy.
 acquires one permit; the spawned handler task holds it until it exits
 (success, timeout, or error). If the cap is hit, the new connection is
 dropped immediately (the kernel sends RST/FIN). This bounds resource use
-under a connection flood — an adversary can't pile up unbounded handler
+under a connection flood , an adversary can't pile up unbounded handler
 tasks or exhaust the process's file descriptors.
 
-If `accept()` itself errors (rare — usually a fd-table problem), it logs
+If `accept()` itself errors (rare , usually a fd-table problem), it logs
 a warning and continues. The listener never dies on its own.
 
 ### 5.2 `handle_connection`
@@ -503,12 +502,12 @@ The flow on a normal `Sync`:
    UUID in the same message can't be re-added on the next line.
 4. Add the sender (`from`) to the resolved peer map. `add_resolved`
    silently no-ops if the entry is self or already tombstoned.
-5. Add every entry from `known_peers` to the resolved map — peer-list
+5. Add every entry from `known_peers` to the resolved map , peer-list
    gossip.
-6. Take `local.borrow()` — a read-locked view of the latest watch
+6. Take `local.borrow()` , a read-locked view of the latest watch
    value.
 7. Call `merge(&state)`. Because `Crdt::merge` produces a new `T`,
-   nothing is mutated in place — `local` still holds the pre-merge
+   nothing is mutated in place , `local` still holds the pre-merge
    value.
 8. `merged.send(merged_value)` publishes the result on the broadcast.
    If nobody is subscribed yet, `send` returns `Err` and we ignore it.
@@ -517,7 +516,7 @@ The flow on a normal `Sync`:
 no state). It still propagates `departed` and `known_peers`.
 
 **Why does the engine not write the merged value back to the watch?**
-Because the engine doesn't own the watch `Sender` — the app does. The app
+Because the engine doesn't own the watch `Sender` , the app does. The app
 must do that itself via the forwarder pattern. The reason for that split
 is the merge-vs-replace problem, explained in section 7.
 
@@ -565,7 +564,7 @@ flaky tests.
 2. Take a peer snapshot: a flat list of `targets` (resolved peers'
    addresses + still-unresolved bootstrap addresses) and a `known_peers`
    payload (resolved peers as `PeerEntry`, capped at 64). Bootstraps are
-   *targets we send to* but not *peers we advertise* — we can only put
+   *targets we send to* but not *peers we advertise* , we can only put
    resolved peers (with UUIDs) into `known_peers`.
 3. Choose up to 2 random targets via `IteratorRandom::choose_multiple`.
    `FANOUT = 2` matches the spec.
@@ -661,7 +660,7 @@ listener for C: reads local {X:1}, computes {X:1, C:2}, broadcasts {X:1, C:2}
 
 The forwarder receives both broadcasts. If it does
 `watch_tx.send(value)` (replace), then whichever broadcast it processes
-second wins, and the loser's contribution is lost forever — until the
+second wins, and the loser's contribution is lost forever , until the
 next gossip round, if it happens at all.
 
 ### Why merging works
@@ -680,12 +679,12 @@ incoming {X:1, C:2} arrives second → watch becomes {X:1, A:3, C:2}
 ```
 
 Both contributions land. This is correct because state-based CRDT merge is
-commutative, associative, and idempotent — applying `merge` to an
+commutative, associative, and idempotent , applying `merge` to an
 already-merged value is exactly the right thing.
 
 ### So why doesn't the engine just merge into the watch directly?
 
-It can't — it only has a `watch::Receiver`, not a `Sender`. That was a
+It can't , it only has a `watch::Receiver`, not a `Sender`. That was a
 deliberate split:
 
 - Keeps the engine's API surface small (no `watch::Sender` parameter).
@@ -779,13 +778,13 @@ Graceful path (A presses Ctrl-C):
      └ Goodbye{from: A, departed: [A], known_peers: [B, C]} → C  (500ms timeout)
   B: absorb_tombstones([A]) → drop A from resolved
   C: absorb_tombstones([A]) → drop A from resolved
-  (next tick) B's Sync to C carries departed: [A] — idempotent reinforcement.
+  (next tick) B's Sync to C carries departed: [A] , idempotent reinforcement.
 
 Crash path (A loses power):
   B: tick → send_sync(A) fails. failure_counts[A_addr] = 1.
   …repeat for ~10 ticks (≈10s at 1s interval)…
   B: failure_counts[A_addr] = 10 → tombstone(A) → drop from resolved.
-  (next tick) B's Sync to C carries departed: [A] — C now knows too.
+  (next tick) B's Sync to C carries departed: [A] , C now knows too.
 ```
 
 Both paths converge to the same end state: every live peer has A in its
@@ -826,43 +825,43 @@ abuse.
 
 There are nine integration tests across three files, all built on a
 shared **`MockCrdt`** ([tests/common/mod.rs](../crdt-net/tests/common/mod.rs))
-— a `BTreeMap<Uuid, u64>` with element-wise-max merge that trivially
+, a `BTreeMap<Uuid, u64>` with element-wise-max merge that trivially
 satisfies the CRDT laws. Each test file declares `mod common;` at the
 top to pull it in; Cargo doesn't compile the `common` subdirectory as a
 test binary.
 
-[tests/gossip.rs](../crdt-net/tests/gossip.rs) — 3 tests for the basic
+[tests/gossip.rs](../crdt-net/tests/gossip.rs) , 3 tests for the basic
 gossip path:
 
-1. **`converges_across_three_nodes`** — full mesh, each bumps; assert all
+1. **`converges_across_three_nodes`** , full mesh, each bumps; assert all
    three converge to the union total within a few intervals.
-2. **`partition_then_heal`** — peer, mutate, converge, un-peer, mutate
+2. **`partition_then_heal`** , peer, mutate, converge, un-peer, mutate
    independently, re-peer, assert convergence.
-3. **`garbage_does_not_kill_listener`** — bogus length prefixes /
+3. **`garbage_does_not_kill_listener`** , bogus length prefixes /
    truncated frames; verify the listener stays up and still processes a
    valid frame afterwards.
 
-[tests/discovery.rs](../crdt-net/tests/discovery.rs) — 2 tests for
-peer-list propagation (mDNS itself is skipped — too flaky in CI):
+[tests/discovery.rs](../crdt-net/tests/discovery.rs) , 2 tests for
+peer-list propagation (mDNS itself is skipped , too flaky in CI):
 
-1. **`peer_list_propagates_transitively`** — A↔B↔C, A and C learn each
+1. **`peer_list_propagates_transitively`** , A↔B↔C, A and C learn each
    other through B's `known_peers` field.
-2. **`bootstrap_gets_uuid_after_first_contact`** — confirms the
+2. **`bootstrap_gets_uuid_after_first_contact`** , confirms the
    bootstrap → resolved migration on first successful gossip.
 
-[tests/tombstones.rs](../crdt-net/tests/tombstones.rs) — 4 tests for the
+[tests/tombstones.rs](../crdt-net/tests/tombstones.rs) , 4 tests for the
 2P-Set tombstoning path:
 
-1. **`graceful_shutdown_propagates_tombstone`** — A calls
+1. **`graceful_shutdown_propagates_tombstone`** , A calls
    `graceful_shutdown`; within a few ticks B and C have A's UUID in
    `known_tombstones()`.
-2. **`tombstoned_peer_is_not_revived_by_peer_list_gossip`** — A
+2. **`tombstoned_peer_is_not_revived_by_peer_list_gossip`** , A
    tombstones B; even though C still gossips B's address to A, A's
    resolved map stays empty for B.
-3. **`consecutive_failures_evict_unreachable_bootstrap`** — bootstrap
+3. **`consecutive_failures_evict_unreachable_bootstrap`** , bootstrap
    pointing at a bind-then-released port; engine evicts it after the
    threshold and still works for real peers added afterwards.
-4. **`tombstone_propagates_transitively_via_known_peers_in_sync`** —
+4. **`tombstone_propagates_transitively_via_known_peers_in_sync`** ,
    A→B→C topology, A tombstones C, B learns via A's `departed`, C
    correctly refuses to tombstone its own UUID.
 
@@ -873,13 +872,13 @@ tombstone tests were each run 10× in a loop to verify they aren't flaky.
 
 ## 11. How `crdt-net` plugs into the rest of the project
 
-- **`crdt-core`** — provides the `Crdt` trait that `crdt-net` is generic
+- **`crdt-core`** , provides the `Crdt` trait that `crdt-net` is generic
   over. Right now `crdt-core` only contains the trait; once student 1
   fills in `VectorClock`, `LWWRegister`, `ORSet`, ..., and the composite
   `CanvasDocument`, the latter will become the `T` that `crdt-app`
   instantiates the engine with. `crdt-net` itself doesn't need a single
   line of change.
-- **`crdt-app`** — will own `Arc<RwLock<AppState>>`, the
+- **`crdt-app`** , will own `Arc<RwLock<AppState>>`, the
   `watch::Sender<CanvasDocument>`, the `broadcast::Receiver<CanvasDocument>`,
   the forwarder task, the Axum HTTP/WS server, and CLI parsing. It calls
   `GossipEngine::run` once at startup, keeps the handle, and uses
@@ -916,7 +915,7 @@ That's the entire integration surface.
 
 ---
 
-## 12. Quick reference — file → purpose
+## 12. Quick reference , file → purpose
 
 | File | Purpose |
 |---|---|
@@ -934,33 +933,33 @@ That's the entire integration surface.
 
 ## 13. Glossary
 
-- **State-based CRDT (CvRDT)** — a data type whose merge operation is
+- **State-based CRDT (CvRDT)** , a data type whose merge operation is
   commutative, associative, and idempotent. Two replicas exchanging full
   states and merging always converge, regardless of message order or
   duplication.
-- **Gossip** — periodic, push-based, randomised peer-to-peer
+- **Gossip** , periodic, push-based, randomised peer-to-peer
   dissemination. Each tick a node sends its state to a small random subset
   of peers (fanout = 2 here). Anti-entropy: every node eventually sees
   every update.
-- **`watch` channel** — single-producer, multi-consumer; consumers see
+- **`watch` channel** , single-producer, multi-consumer; consumers see
   only the latest value, not the history. Used here for "what is my
   current state".
-- **`broadcast` channel** — multi-producer, multi-consumer; every
+- **`broadcast` channel** , multi-producer, multi-consumer; every
   subscriber receives every message (bounded buffer; if a subscriber
   lags, they get a `Lagged` error). Used here for "merged state event".
-- **Forwarder** — small async task in `crdt-app` (and in the integration
+- **Forwarder** , small async task in `crdt-app` (and in the integration
   tests) that subscribes to the broadcast and merges values back into the
   watch source. Required for correctness; see section 7.
-- **Fanout** — number of peers a node gossips to per tick. `FANOUT = 2`.
-- **Anti-entropy interval** — `GossipConfig::interval`, default 5s.
-- **mDNS (Multicast DNS)** — a zero-config service discovery protocol that
+- **Fanout** , number of peers a node gossips to per tick. `FANOUT = 2`.
+- **Anti-entropy interval** , `GossipConfig::interval`, default 5s.
+- **mDNS (Multicast DNS)** , a zero-config service discovery protocol that
   uses link-local IPv4 multicast (`224.0.0.251:5353`). Nodes announce
   themselves and browse for others without any central registry. Doesn't
   cross broadcast domains, so it doesn't traverse NAT, VPNs, or routed
   subnets.
-- **Bootstrap peer** — a peer address you supply explicitly because mDNS
+- **Bootstrap peer** , a peer address you supply explicitly because mDNS
   can't reach it (different subnet, Tailscale, internet). One bootstrap is
   enough; peer-list gossip propagates the rest of the mesh.
-- **Peer-list gossip** — each `Sync` message carries the sender's resolved
+- **Peer-list gossip** , each `Sync` message carries the sender's resolved
   peer set, so a node connected to *any* peer transitively learns about
   the whole mesh within a few gossip intervals.

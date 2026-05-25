@@ -86,7 +86,7 @@ async fn converges_across_three_nodes() {
     let b = Node::start(interval).await;
     let c = Node::start(interval).await;
 
-    // Full mesh — wire each pair using known UUIDs and local addresses.
+    // Full mesh , wire each pair using known UUIDs and local addresses.
     a.engine.add_peer(b.id, b.addr());
     a.engine.add_peer(c.id, c.addr());
     b.engine.add_peer(a.id, a.addr());

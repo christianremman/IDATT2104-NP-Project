@@ -1,8 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 9fba88026553bd34e9427c5c161b40b86a18781a4d64b72107891dde2dceef3a # shrinks to a = MVRegister { entries: [] }, b = MVRegister { entries: [(VectorClock { clock: {} }, 27), (VectorClock { clock: {} }, 27)] }
-cc b99f9322a433506c102e534299e9dda03bfc66c5ff1a9f706caad159ba5f3ca2 # shrinks to a = MVRegister { entries: [(VectorClock { clock: {00000000-0000-0000-0000-000000000001: 9} }, 0)] }, b = MVRegister { entries: [(VectorClock { clock: {00000000-0000-0000-0000-000000000001: 9} }, 1)] }

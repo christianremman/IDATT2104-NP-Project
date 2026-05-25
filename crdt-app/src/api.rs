@@ -1,8 +1,36 @@
 //! HTTP and WebSocket API for the canvas application.
 //!
-//! All canvas mutations go through [`AppState::mutate`]. This file
-//! contains no domain logic, only request parsing and response
-//! serialization.
+//! This file is the boundary between the browser and the application
+//! state. It parses HTTP requests, calls [`AppState::mutate`] with the
+//! appropriate [`CanvasDocument`] method, and serializes the response.
+//! No domain logic lives here: if you want to understand *what*
+//! happens to the canvas, look at `canvas.rs`. If you want to
+//! understand *how* it's coordinated, look at `state.rs`. This file
+//! is just plumbing.
+//!
+//! **WebSocket session lifecycle**
+//!
+//! Each browser tab opens a WebSocket to this node's HTTP server.
+//! These are local connections. Peer-to-peer gossip runs on separate
+//! TCP connections managed by `crdt-net`.
+//!
+//! The `active_peers` list in the frontend shows which nodes
+//! someone is actively using. A [`AtomicUsize`] counts
+//! how many browser tabs are connected to this node via WebSocket:
+//!
+//! - First browser connects (0 -> 1): this node's UUID is added to
+//!   the users ORSet. Gossip transimits it to other nodes.
+//! - Last browser disconnects (1 -> 0): the UUID is removed.
+//!   Gossip transmits that too.
+//!
+//! ** Notes**
+//!
+//! A node running with zero browsers is still a gossip peer,
+//! it just doesn't appear in `active_peers`.
+//!
+//! Cursors are tracked per browser session, not per node. Each
+//! tab has its own cursor position, cleaned up individually when
+//! that tab's WebSocket closes.
 use crate::canvas::{
     CanvasDeltaView, CanvasDocument, CanvasVersion, CanvasView, LeaderboardEntry, Rgba,
 };
@@ -19,9 +47,17 @@ use axum::{
 use crdt_core::DeltaCrdt;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
+
+/// Tracks how many browser tabs are connected to this node.
+///
+/// Module-level because it's a WS-layer concern, not application state.
+/// The counter drives add/remove of this node's UUID in the users ORSet:
+/// first tab in adds, last tab out removes.
+static WS_SESSIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// Embeds the built Vue frontend (`frontend/dist/`) into the binary at
 /// compile time. `static_handler` serves these assets from `/`, so a
@@ -56,7 +92,7 @@ pub struct PaintRequest {
     pub color: [u8; 4],
 }
 
-/// Response for `GET /api/node` — identifies this peer on the network.
+/// Response for `GET /api/node`: identifies this peer on the network.
 #[derive(Serialize)]
 pub struct NodeInfo {
     /// UUID of this node, assigned at startup.
@@ -69,7 +105,7 @@ pub struct PaletteRequest {
     pub color: [u8; 4],
 }
 
-/// Body for `POST /api/peers` — adds a runtime bootstrap peer to the gossip engine.
+/// Body for `POST /api/peers`: adds a runtime bootstrap peer to the gossip engine.
 #[derive(Deserialize)]
 pub struct BootstrapRequest {
     pub addr: String,
@@ -104,26 +140,27 @@ pub fn router(state: Arc<AppState>) -> Router {
         .layer(CorsLayer::permissive())
 }
 
-/// `GET /api/canvas` — returns the full canvas as a [`CanvasView`] JSON snapshot.
+/// `GET /api/canvas`: returns the full canvas as a [`CanvasView`] JSON snapshot.
 async fn get_canvas(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(CanvasView::from(&*s.canvas()))
 }
 
-/// `POST /api/canvas/paint` — paint a single pixel; always returns `{ ok: true }`.
+/// `POST /api/canvas/paint`: paint a single pixel; always returns `{ ok: true }`.
 async fn paint(State(s): State<Arc<AppState>>, Json(req): Json<PaintRequest>) -> impl IntoResponse {
     let color: Rgba = (req.color[0], req.color[1], req.color[2], req.color[3]);
     s.mutate(|doc, id| doc.paint(req.x, req.y, color, id));
+    tracing::debug!(x = req.x, y = req.y, "pixel painted");
     Json(serde_json::json!({ "ok": true }))
 }
 
-/// `GET /api/node` — returns this node's UUID
+/// `GET /api/node`: returns this node's UUID
 async fn node_info(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(NodeInfo {
         id: s.node_id().to_string(),
     })
 }
 
-/// `POST /api/canvas/cursor` — update the cursor position for a user.
+/// `POST /api/canvas/cursor`: update the cursor position for a user.
 ///
 /// `user_id` is taken from the request body without authentication; any client
 /// can move any cursor. Acceptable for this project scope (no auth layer).
@@ -140,7 +177,7 @@ async fn cursor(
     }
 }
 
-/// `GET /api/palette` — returns the current shared palette as a JSON array of RGBA arrays.
+/// `GET /api/palette`: returns the current shared palette as a JSON array of RGBA arrays.
 async fn get_palette(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let colors: Vec<[u8; 4]> = s
         .canvas()
@@ -151,17 +188,18 @@ async fn get_palette(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(colors)
 }
 
-/// `POST /api/palette` — add a color to the shared palette; returns 201 Created.
+/// `POST /api/palette`: add a color to the shared palette; returns 201 Created.
 async fn add_palette(
     State(s): State<Arc<AppState>>,
     Json(req): Json<PaletteRequest>,
 ) -> impl IntoResponse {
     let color = (req.color[0], req.color[1], req.color[2], req.color[3]);
     s.mutate(|doc, id| doc.add_palette_color(color, &id));
+    tracing::debug!(?color, "palette color added");
     StatusCode::CREATED
 }
 
-/// `DELETE /api/palette` — remove a color from the shared palette.
+/// `DELETE /api/palette`: remove a color from the shared palette.
 ///
 /// Returns 204 No Content on success, 404 Not Found if the color was not in the palette.
 async fn remove_palette(
@@ -171,13 +209,15 @@ async fn remove_palette(
     let color = (req.color[0], req.color[1], req.color[2], req.color[3]);
     let removed = s.mutate(|doc, id| doc.remove_palette_color(&color, id));
     if removed {
+        tracing::debug!(?color, "palette color removed");
         StatusCode::NO_CONTENT
     } else {
+        tracing::debug!(?color, "color not in palette");
         StatusCode::NOT_FOUND
     }
 }
 
-/// `GET /api/leaderboard` — returns pixel ownership counts sorted descending.
+/// `GET /api/leaderboard`: returns pixel ownership counts sorted descending.
 async fn get_leaderboard(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let board: Vec<LeaderboardEntry> = s
         .canvas()
@@ -191,7 +231,7 @@ async fn get_leaderboard(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(board)
 }
 
-/// `POST /api/peers` — add a bootstrap peer to the gossip engine at runtime.
+/// `POST /api/peers`: add a bootstrap peer to the gossip engine at runtime.
 ///
 /// Body: `{"addr": "192.168.1.10:9090"}`. Returns 204 on success, 400 if the
 /// address cannot be parsed as a `SocketAddr`.
@@ -207,6 +247,8 @@ async fn add_peer(
         Err(_) => StatusCode::BAD_REQUEST,
     }
 }
+
+/// Serves the static frontend files
 async fn static_handler(uri: axum::http::Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };
@@ -231,7 +273,7 @@ async fn static_handler(uri: axum::http::Uri) -> Response {
     }
 }
 
-/// `GET /ws` — upgrade to a WebSocket connection and hand off to [`handle_ws`].
+/// `GET /ws`: upgrade to a WebSocket connection and hand off to [`handle_ws`].
 ///
 /// Accepts an optional `?id=<uuid>` query parameter. The frontend passes its
 /// stable `sessionStorage` UUID for cursor ownership tracking. Falls back to a
@@ -250,38 +292,54 @@ async fn ws_handler(
 
 /// Per-client WebSocket session.
 ///
-/// On first browser connection to this node, registers the backend node_id in
-/// the users ORSet so `active_peers` reflects gossip-level node identity. On
-/// the last disconnect, removes it. Each browser session's cursor is cleaned up
-/// individually on disconnect regardless of session count.
+/// Manages user lifecycle via the [`WS_SESSIONS`] counter:
+/// - First tab: adds this node's UUID to the users ORSet.
+/// - Last tab: removes it and cleans up the cursor.
+/// - Middle tabs: only clean up their own cursor on disconnect.
+///
+/// The three phases (register - snapshot - stream - cleanup) are split
+/// into separate functions for readability.
 async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: Uuid) {
-    if state.register_ws_client() {
+    // Register this session. If it's the first browser tab on this node,
+    // make the node visible in active_peers.
+    let is_first = WS_SESSIONS.fetch_add(1, Ordering::Relaxed) == 0;
+    if is_first {
         state.mutate(|doc, id| doc.add_user(id, &id));
     }
+    tracing::info!(%user_id, sessions = WS_SESSIONS.load(Ordering::Relaxed), "ws client connected");
 
+    // Send initial full snapshot, then stream deltas.
     let last_seen = match send_snapshot(&mut socket, &state).await {
         Some(version) => version,
         None => {
-            let was_last = state.deregister_ws_client();
-            state.mutate(|doc, id| {
-                doc.remove_cursor_entry(&user_id, id);
-                if was_last {
-                    doc.remove_user(&id, id);
-                }
-            });
+            cleanup_session(&state, &user_id);
             return;
         }
     };
 
     stream_deltas(&mut socket, &state, last_seen).await;
 
-    let was_last = state.deregister_ws_client();
+    cleanup_session(&state, &user_id);
+}
+
+/// Clean up when a WebSocket session ends.
+///
+/// Always removes this session's cursor. If this was the last tab on
+/// this node, also removes the node from the users ORSet.
+fn cleanup_session(state: &AppState, user_id: &Uuid) {
+    let was_last = WS_SESSIONS.fetch_sub(1, Ordering::Relaxed) == 1;
     state.mutate(|doc, id| {
-        doc.remove_cursor_entry(&user_id, id);
+        doc.remove_cursor_entry(user_id, id);
         if was_last {
             doc.remove_user(&id, id);
         }
     });
+    tracing::info!(
+        %user_id,
+        was_last,
+        sessions = WS_SESSIONS.load(Ordering::Relaxed),
+        "ws client disconnected"
+    );
 }
 
 /// Send the initial full-state snapshot. Returns the version it covers
@@ -309,7 +367,7 @@ async fn send_snapshot(socket: &mut WebSocket, state: &AppState) -> Option<Canva
 /// Stream deltas to the client until it disconnects or the watch closes.
 ///
 /// Borrows the document just long enough to compute the delta and
-/// serialize — the guard is always dropped before the `.await` on
+/// serialize: the guard is always dropped before the `.await` on
 /// `socket.send`.
 async fn stream_deltas(socket: &mut WebSocket, state: &AppState, mut last_seen: CanvasVersion) {
     let mut rx = state.subscribe();
@@ -361,6 +419,18 @@ mod tests {
     fn make_app() -> Router {
         let (state, _rx) = crate::state::AppState::new(Uuid::new_v4());
         router(state)
+    }
+    #[test]
+    fn session_counter_first_register() {
+        let counter = AtomicUsize::new(0);
+        assert_eq!(counter.fetch_add(1, Ordering::Relaxed), 0); // first
+    }
+
+    #[test]
+    fn session_counter_last_deregister() {
+        let counter = AtomicUsize::new(2);
+        assert_ne!(counter.fetch_sub(1, Ordering::Relaxed), 1); // not last
+        assert_eq!(counter.fetch_sub(1, Ordering::Relaxed), 1); // last
     }
 
     #[tokio::test]

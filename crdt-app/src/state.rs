@@ -2,8 +2,8 @@
 //!
 //! [`AppState`] sits between the network layer (`crdt-net`) and the API
 //! layer (`api.rs`). It holds the canvas document and this node's
-//! identity. Every mutation — whether from a local browser or a remote
-//! gossip merge — flows through here.
+//! identity. Every mutation , whether from a local browser or a remote
+//! gossip merge , flows through here.
 //!
 //! **Timestamps**
 //!
@@ -12,6 +12,12 @@
 //! the replicated state. When a document is gossiped to another peer,
 //! the clock travels with it and merges automatically, there is no
 //! manual syncing needed.
+//!
+//! Earlier design kept an `AtomicU64` clock counter here and
+//! advanced it by manually after each gossip merge. This was a worse implementations
+//! of what `VectorClock::merge` already does, with a race window between
+//! the merge and the counter advance. Moving the clock into the document
+//! eliminates both problems.
 //!
 //! **Why all methods are synchronous**
 //!
@@ -22,33 +28,30 @@
 //! - The closure runs to completion without yielding, so there is no
 //!   risk of holding a lock across an await point.
 //! - When we add delta support, the same closure can mutate the document
-//!   and compute the diff in one atomic step — no gap where another
+//!   and compute the diff in one atomic step , no gap where another
 //!   write could sneak in.
 //!
 //! The tradeoff is that the closure blocks a tokio worker thread for its
 //! duration. For our canvas this is microseconds.
-
 use crate::canvas::CanvasDocument;
 use crdt_core::Crdt;
 use crdt_net::GossipEngine;
-use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::watch;
 use uuid::Uuid;
 
 /// Shared application state, wrapped in `Arc` and passed to all tasks.
 ///
+/// Only three fields: the node's identity, the canvas channel, and gossip engine.
+///  The document's internal [`VectorClock`](crdt_core::clocks::VectorClock) handles all timestamp concerns,
+/// it increments on local mutations, and merges automatically when
+/// remote state arrives via gossip.
+///
 /// The canvas is stored inside a [`watch::Sender`] which serves as the
 /// single source of truth. Readers (WebSocket handlers, the gossip
 /// engine) obtain a [`watch::Receiver`] via [`subscribe`](Self::subscribe)
 /// and get notified whenever the document changes.
-///
-/// Only two fields: the node's identity and the canvas channel. The
-/// document's internal [`VectorClock`] handles all timestamp concerns,
-/// it increments on local mutations, and merges automatically when
-/// remote state arrives via gossip.
 ///
 /// The [`GossipEngine`] is created *after* `AppState` (it needs the
 /// [`watch::Receiver`] that `new` returns), so the engine handle is
@@ -61,38 +64,26 @@ pub struct AppState {
     canvas: watch::Sender<CanvasDocument>,
     /// Gossip engine handle, wired in after construction via `set_engine`.
     /// `OnceLock` because the engine needs the `watch::Receiver` that `new`
-    /// produces — the chicken-and-egg is resolved by initializing exactly once
+    /// produces , the chicken-and-egg is resolved by initializing exactly once
     /// with no runtime locking cost after startup.
     engine: OnceLock<Arc<GossipEngine>>,
-    /// Count of active WebSocket browser sessions. Used to add this node
-    /// to the users ORSet on the first connection and remove it on the last.
-    ws_session_count: AtomicUsize,
 }
 
 impl AppState {
+    /// Create a new `AppState` with an empty canvas.
+    ///
+    /// Returns `(state, rx)` where `rx` is the initial
+    /// [`watch::Receiver`] used by the gossip engine. Additional
+    /// receivers for WebSocket handlers are obtained via
+    /// [`subscribe`](Self::subscribe).
     pub fn new(node_id: Uuid) -> (Arc<Self>, watch::Receiver<CanvasDocument>) {
         let (tx, rx) = watch::channel(CanvasDocument::new());
         let state = Arc::new(Self {
             node_id,
             canvas: tx,
             engine: OnceLock::new(),
-            ws_session_count: AtomicUsize::new(0),
         });
         (state, rx)
-    }
-
-    /// Increment the WebSocket session count. Returns `true` when this is the
-    /// first browser session (0 → 1), signalling that the backend node should
-    /// be added to the users ORSet.
-    pub fn register_ws_client(&self) -> bool {
-        self.ws_session_count.fetch_add(1, Ordering::Relaxed) == 0
-    }
-
-    /// Decrement the WebSocket session count. Returns `true` when this was the
-    /// last browser session (1 → 0), signalling that the backend node should
-    /// be removed from the users ORSet.
-    pub fn deregister_ws_client(&self) -> bool {
-        self.ws_session_count.fetch_sub(1, Ordering::Relaxed) == 1
     }
 
     pub fn node_id(&self) -> Uuid {
@@ -113,39 +104,14 @@ impl AppState {
         let _ = self.engine.set(engine);
     }
 
-    /// Remove any active users whose UUIDs appear in `tombstones`.
-    ///
-    /// The gossip engine's peer registry and the `CanvasDocument.users` ORSet
-    /// are otherwise unconnected: tombstoning a peer in the registry (on Goodbye
-    /// or repeated send failures) does not automatically evict them from the
-    /// CRDT state. This method bridges that gap.
-    ///
-    /// No-op — and no document mutation — when the intersection is empty.
-    pub fn remove_departed_users(&self, tombstones: &HashSet<Uuid>) {
-        if tombstones.is_empty() {
-            return;
-        }
-        let to_remove: Vec<Uuid> = {
-            let doc = self.canvas.borrow();
-            doc.active_users()
-                .intersection(tombstones)
-                .copied()
-                .collect()
-        };
-        if to_remove.is_empty() {
-            return;
-        }
-        self.canvas.send_modify(|doc| {
-            for departed in &to_remove {
-                doc.remove_user(departed, self.node_id);
-            }
-        });
-    }
-
     /// Add a bootstrap peer to the gossip engine at runtime.
     ///
-    /// No-op if the engine hasn't been wired in yet (shouldn't happen
-    /// in practice — `main.rs` calls `set_engine` before serving HTTP).
+    /// Delegates to [`GossipEngine::add_bootstrap`]. `api.rs` only holds
+    /// `Arc<AppState>`, so it can't reach the engine directly. The engine
+    /// discovers the peer's UUID on first successful gossip exchange and
+    /// migrates it from the bootstrap set into the resolved peer map.
+    ///
+    /// No-op if the engine hasn't been wired in yet via `set_engine`.
     pub fn add_bootstrap(&self, addr: SocketAddr) {
         if let Some(engine) = self.engine.get() {
             engine.add_bootstrap(addr);
@@ -165,15 +131,20 @@ impl AppState {
     /// # Example
     ///
     /// ```ignore
+    /// // Paint a pixel
     /// state.mutate(|doc, node_id| {
     ///     doc.paint(x, y, color, node_id);
     /// });
+    ///
+    /// // Add a user
+    /// state.mutate(|doc, node_id| doc.add_user(user, &node_id));
     /// ```
     pub fn mutate<R>(&self, f: impl FnOnce(&mut CanvasDocument, Uuid) -> R) -> R {
         let mut result = None;
         self.canvas.send_modify(|doc| {
             result = Some(f(doc, self.node_id));
         });
+        tracing::debug!("canvas mutated");
         // `send_modify` calls the closure exactly once, synchronously,
         // before returning, `result` is always `Some` here.
         result.expect("send_modify did not invoke closure")
@@ -181,7 +152,7 @@ impl AppState {
 
     /// Merge a remotely-received document into local state.
     ///
-    /// The document's `VectorClock` merges as part of `Crdt::merge`,
+    /// The document's `VectorClock` merges as part of [`Crdt::merge`],
     /// so subsequent local writes will automatically have higher
     /// timestamps than anything observed from the remote peer.
     pub fn apply_gossip(&self, incoming: CanvasDocument) {
@@ -191,11 +162,11 @@ impl AppState {
     /// Borrow the current canvas state.
     ///
     /// Returns a read guard into the watch channel. Hold it only
-    /// briefly, while it's alive, `mutate` and `apply_gossip` will
-    /// block waiting for the guard to drop.
+    /// briefly, while it's alive, `[`mutate`](Self::mutate) and
+    /// [`apply_gossip`](Self::apply_gossip) will block waiting
+    /// for the guard to drop.
     ///
     /// Use this for quick reads like serializing an HTTP response.
-    /// For longer-lived access, use [`snapshot`](Self::snapshot) instead.
     pub fn canvas(&self) -> watch::Ref<'_, CanvasDocument> {
         self.canvas.borrow()
     }
@@ -248,7 +219,6 @@ mod tests {
     fn gossip_merge_advances_clock() {
         let (state, _rx) = make();
 
-        // Remote peer painted at a high clock value.
         let mut incoming = CanvasDocument::new();
         let remote_id = Uuid::from_u128(2);
         incoming.paint(0, 0, (255, 0, 0, 255), remote_id);
@@ -269,7 +239,7 @@ mod tests {
     #[test]
     fn subscribe_sees_changes() {
         let (state, _rx) = make();
-        let mut watcher = state.subscribe();
+        let watcher = state.subscribe();
         state.mutate(|doc, id| doc.paint(0, 0, (1, 2, 3, 4), id));
         assert!(watcher.has_changed().unwrap());
     }
@@ -279,72 +249,5 @@ mod tests {
         let (state, _rx) = make();
         // Must not panic when engine not yet wired in.
         state.add_bootstrap("127.0.0.1:9090".parse().unwrap());
-    }
-
-    #[test]
-    fn remove_departed_users_evicts_tombstoned_peer() {
-        use std::collections::HashSet;
-        let (state, _rx) = make();
-        let peer_id = Uuid::from_u128(99);
-        state.mutate(|doc, id| doc.add_user(peer_id, &id));
-        assert!(state.canvas().active_users().contains(&peer_id));
-
-        let tombstones: HashSet<Uuid> = [peer_id].into_iter().collect();
-        state.remove_departed_users(&tombstones);
-
-        assert!(!state.canvas().active_users().contains(&peer_id));
-    }
-
-    #[test]
-    fn remove_departed_users_with_absent_uuid_is_noop() {
-        use crdt_core::DeltaCrdt;
-        use std::collections::HashSet;
-        let (state, _rx) = make();
-        let tombstones: HashSet<Uuid> = [Uuid::from_u128(999)].into_iter().collect();
-        let version_before = state.canvas().version();
-        state.remove_departed_users(&tombstones);
-        assert_eq!(state.canvas().version(), version_before);
-    }
-
-    #[test]
-    fn remove_departed_users_empty_tombstones_is_noop() {
-        use crdt_core::DeltaCrdt;
-        use std::collections::HashSet;
-        let (state, _rx) = make();
-        let version_before = state.canvas().version();
-        state.remove_departed_users(&HashSet::new());
-        assert_eq!(state.canvas().version(), version_before);
-    }
-
-    #[test]
-    fn register_ws_client_returns_true_on_first_call() {
-        let (state, _rx) = make();
-        assert!(state.register_ws_client());
-    }
-
-    #[test]
-    fn register_ws_client_returns_false_on_subsequent_calls() {
-        let (state, _rx) = make();
-        state.register_ws_client();
-        assert!(!state.register_ws_client());
-        assert!(!state.register_ws_client());
-    }
-
-    #[test]
-    fn deregister_ws_client_returns_true_only_on_last_disconnect() {
-        let (state, _rx) = make();
-        state.register_ws_client();
-        state.register_ws_client();
-        assert!(!state.deregister_ws_client());
-        assert!(state.deregister_ws_client());
-    }
-
-    #[test]
-    fn single_register_deregister_round_trips() {
-        let (state, _rx) = make();
-        assert!(state.register_ws_client());
-        assert!(state.deregister_ws_client());
-        // After full round-trip, next register starts fresh.
-        assert!(state.register_ws_client());
     }
 }

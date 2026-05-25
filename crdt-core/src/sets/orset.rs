@@ -1,7 +1,7 @@
 //! Observed-Remove Set (ORSet) CRDT.
 //!
-//! Solves the permanent removal limitation of [`TwoPSet`] by
-//! tagging each add operation with a unique identifier.
+//! Solves the permanent removal limitation of [`TwoPSet`](super::TwoPSet) by
+//! //! tagging each add operation with a unique identifier.
 //! Concurrent add and remove of the same element results in
 //! the element being present.
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
@@ -113,8 +113,8 @@ where
     /// Adds `element` with a tag stamped `(node_id, seq)`.
     ///
     /// `seq` must be monotonically increasing for a given `node_id` across
-    /// all replicas — pass the result of [`VectorClock::increment`] so the
-    /// tag sequence aligns with the document's causal clock. This makes the
+    /// all replicas , pass the result of [`VectorClock::increment`](crate::clocks::VectorClock::increment)
+    /// so the tag sequence aligns with the document's causal clock. This makes the
     /// per-node tag frontier a sub-projection of the document's
     /// `VectorClock`, which is what [`DeltaCrdt::delta_since`] relies on.
     pub fn insert(&mut self, element: T, node_id: &NodeId, seq: u64) {
@@ -214,7 +214,7 @@ where
 /// Both `adds` and `removed_tags` are filtered by the same per-node
 /// frontier: each tag carries `(node_id, seq)`, and only tags whose `seq`
 /// exceeds `since[node_id]` are shipped. This makes `is_empty_delta`
-/// truthful — once a peer has absorbed a tombstone, subsequent deltas
+/// truthful , once a peer has absorbed a tombstone, subsequent deltas
 /// omit it instead of re-shipping the full tombstone set every tick.
 /// Without this filtering, any removal permanently disables the
 /// `is_empty_delta` skip on the WS path and inflates idle traffic.

@@ -73,7 +73,7 @@ impl<T: Clone + PartialEq> DeltaCrdt for LWWRegister<T> {
     /// `(timestamp, node_id)`; `None` otherwise (receiver is already at or
     /// past this register).
     type Delta = Option<LWWRegister<T>>;
-    /// `(0, Uuid::nil())` represents "receiver knows no register yet" — any
+    /// `(0, Uuid::nil())` represents "receiver knows no register yet" , any
     /// register dominates that.
     type Version = (u64, NodeId);
 
