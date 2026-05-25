@@ -1,7 +1,7 @@
 //! Observed-Remove Set (ORSet) CRDT.
 //!
 //! Solves the permanent removal limitation of [`TwoPSet`](super::TwoPSet) by
-//! //! tagging each add operation with a unique identifier.
+//! tagging each add operation with a unique identifier.
 //! Concurrent add and remove of the same element results in
 //! the element being present.
 use crate::traits::{Crdt, DeltaCrdt, NodeId};
@@ -522,6 +522,59 @@ mod tests {
             .removed_tags
             .iter()
             .any(|t| t.node_id == a && t.seq == 1));
+    }
+    #[test]
+    fn delta_since_empty_replays_all() {
+        let a = node(1);
+        let mut set = ORSet::new();
+        set.insert("milk", &a, 1);
+        set.insert("eggs", &a, 2);
+        let delta = set.delta_since(&HashMap::new());
+        let mut fresh: ORSet<&str> = ORSet::new();
+        fresh.merge_delta(delta);
+        assert!(fresh.contains(&"milk"));
+        assert!(fresh.contains(&"eggs"));
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let a = node(1);
+        let mut set = ORSet::new();
+        set.insert("milk", &a, 1);
+        let delta = set.delta_since(&set.version());
+        assert!(<ORSet<&str> as DeltaCrdt>::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_lagging_peer() {
+        let a = node(1);
+        let b = node(2);
+        let mut peer_a = ORSet::new();
+        let mut peer_b = ORSet::new();
+        peer_a.insert("milk", &a, 1);
+        peer_b.merge(peer_a.clone());
+
+        peer_a.insert("eggs", &a, 2);
+        peer_a.insert("bread", &b, 1);
+
+        let delta = peer_a.delta_since(&peer_b.version());
+        peer_b.merge_delta(delta);
+        assert!(peer_b.contains(&"milk"));
+        assert!(peer_b.contains(&"eggs"));
+        assert!(peer_b.contains(&"bread"));
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let a = node(1);
+        let mut set = ORSet::new();
+        set.insert("milk", &a, 1);
+        let delta = set.delta_since(&HashMap::new());
+        let mut b: ORSet<&str> = ORSet::new();
+        b.merge_delta(delta.clone());
+        let before = b.value();
+        b.merge_delta(delta);
+        assert_eq!(b.value(), before);
     }
 
     proptest! {

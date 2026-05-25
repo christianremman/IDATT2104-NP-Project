@@ -187,6 +187,72 @@ mod tests {
         assert!(!b.compare(&a));
     }
 
+    #[test]
+    fn delta_since_zero_returns_register() {
+        let r = LWWRegister::new(42u32, 5, n(1));
+        let delta = r.delta_since(&(0, Uuid::nil()));
+        assert!(delta.is_some());
+        assert_eq!(delta.unwrap().value(), 42);
+    }
+
+    #[test]
+    fn delta_since_current_version_is_empty() {
+        let r = LWWRegister::new(42u32, 5, n(1));
+        let delta = r.delta_since(&r.version());
+        assert!(LWWRegister::<u32>::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_since_older_version_returns_register() {
+        let r = LWWRegister::new(42u32, 5, n(1));
+        let delta = r.delta_since(&(3, n(1)));
+        assert!(delta.is_some());
+    }
+
+    #[test]
+    fn delta_since_newer_version_is_empty() {
+        let r = LWWRegister::new(42u32, 5, n(1));
+        let delta = r.delta_since(&(10, n(1)));
+        assert!(LWWRegister::<u32>::is_empty_delta(&delta));
+    }
+
+    #[test]
+    fn delta_catches_up_lagging_peer() {
+        let a = LWWRegister::new(99u32, 10, n(1));
+        let mut b = LWWRegister::new(0u32, 0, n(2));
+        let delta = a.delta_since(&b.version());
+        b.merge_delta(delta);
+        assert_eq!(b.value(), 99);
+    }
+
+    #[test]
+    fn delta_is_idempotent() {
+        let a = LWWRegister::new(42u32, 5, n(1));
+        let delta = a.delta_since(&(0, Uuid::nil()));
+        let mut b = LWWRegister::new(0u32, 0, n(2));
+        b.merge_delta(delta.clone());
+        let before = b.value();
+        b.merge_delta(delta);
+        assert_eq!(b.value(), before);
+    }
+
+    #[test]
+    fn version_includes_same_version() {
+        let r = LWWRegister::new(42u32, 5, n(1));
+        let v = r.version();
+        assert!(LWWRegister::<u32>::version_includes(&v, &v));
+    }
+
+    #[test]
+    fn version_includes_detects_lagging() {
+        let a = LWWRegister::new(42u32, 10, n(1));
+        let b = LWWRegister::new(0u32, 3, n(2));
+        assert!(!LWWRegister::<u32>::version_includes(
+            &b.version(),
+            &a.version()
+        ));
+    }
+
     proptest! {
         #[test]
         fn lww_commutative(a in arb_lww(), b in arb_lww()) {

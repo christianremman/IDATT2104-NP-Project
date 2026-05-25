@@ -44,6 +44,13 @@
 //!   `MVRegister` (multi-value)
 //! - [`maps`] : `LWWMap` (per-key last-writer-wins)
 //!
+//! ## Feature flags
+//!
+//! - **`serde`**: enables `Serialize` and `Deserialize` on all CRDT
+//!   types. Off by default, since it is not strictly required (eg. if crdts
+//!   are used by multiple threads in the same process). Enable this if
+//!   serialization is needet for eg. networking.
+//!
 //! ## Example
 //!
 //! ```
@@ -75,6 +82,20 @@
 //!
 //! The same pattern applies to every type in the library: create,
 //! mutate, merge (or delta), read.
+//!
+//! ## Testing
+//!
+//! Every CRDT is tested at two levels:
+//! - **Unit tests** verify type-specific behavior: add-wins in ORSet,
+//!   permanent removal in TwoPSet, timestamp tiebreaking in LWWRegister,
+//!   concurrent write preservation in MVRegister, and so on.
+//! - **Property-based tests** (`proptest`) verify the three CRDT pomises:
+//!   commutativity, associativity, and idempotency. This is done across hundreds of
+//!   randomly generated inputs. If any input violates a promise, proptest
+//!   shrinks it to the smallest failing case.
+//!
+//! Types implementing [`DeltaCrdt`] are additionally tested for delta
+//! correctness.
 pub mod clocks;
 pub mod counters;
 pub mod maps;
