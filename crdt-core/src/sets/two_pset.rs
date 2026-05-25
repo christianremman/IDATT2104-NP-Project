@@ -1,7 +1,7 @@
 //! Two-Phase Set (2PSet) CRDT.
 //!
 //! Extends [`GSet`] by allowing removal. Once removed, an element
-//! can never be re-added. This limitation is solved by [`ORSet`].
+//! can never be re-added. This limitation is solved by [`ORSet`](super::ORSet).
 use std::collections::HashSet;
 use std::hash::Hash;
 

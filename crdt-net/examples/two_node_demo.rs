@@ -2,7 +2,7 @@
 //!
 //! Each node owns a counter map keyed by node UUID with element-wise max
 //! merge (a valid state-based CRDT). Type `bump` on stdin to increment
-//! this node's counter. State changes — local or merged — print one
+//! this node's counter. State changes , local or merged , print one
 //! deduped line at a time.
 //!
 //! With mDNS on (the default), nodes on the same local subnet discover
@@ -20,11 +20,11 @@
 //!       --bootstrap 192.168.1.57:9090
 //!
 //! Commands on stdin:
-//!   bump          — increment this node's counter
-//!   peers         — list discovered peers
-//!   add  IP:PORT  — add a bootstrap peer at runtime
-//!   rm   UUID     — remove a peer by node UUID (use `peers` to find it)
-//!   quit          — exit
+//!   bump          , increment this node's counter
+//!   peers         , list discovered peers
+//!   add  IP:PORT  , add a bootstrap peer at runtime
+//!   rm   UUID     , remove a peer by node UUID (use `peers` to find it)
+//!   quit          , exit
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -311,7 +311,7 @@ async fn main() -> std::io::Result<()> {
                 }
             }
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("\nCtrl-C received — sending Goodbye to peers...");
+                eprintln!("\nCtrl-C received , sending Goodbye to peers...");
                 break;
             }
         }

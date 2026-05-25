@@ -39,7 +39,7 @@ const MAX_CONCURRENT_CONNECTIONS: usize = 64;
 /// `resolved` is keyed by node UUID: one definitive address per remote node.
 /// `bootstraps` is a side-set of addresses we were told about (via
 /// `config.peers` or `add_bootstrap`) but haven't yet exchanged messages
-/// with — we don't know their UUIDs until they reply. Once a bootstrap
+/// with , we don't know their UUIDs until they reply. Once a bootstrap
 /// address gossips with us, it migrates into `resolved`.
 ///
 /// `tombstones` records UUIDs that have departed (gracefully or by
@@ -125,7 +125,7 @@ impl PeerRegistry {
         self.bootstraps.lock().unwrap().insert(addr);
     }
 
-    /// Manually drop a peer by UUID. Does **not** add a tombstone — callers
+    /// Manually drop a peer by UUID. Does **not** add a tombstone , callers
     /// that want propagation should use `tombstone(id)`.
     pub(crate) fn remove(&self, id: Uuid) {
         self.resolved.lock().unwrap().remove(&id);
@@ -190,7 +190,7 @@ impl PeerRegistry {
         };
         // 3. Clear failure counts and last-sent versions for removed
         //    addresses. Tombstoning drops the trust we had in the prior
-        //    delta high-water mark — a future re-resolution must start
+        //    delta high-water mark , a future re-resolution must start
         //    over with a full `Sync`.
         if !removed_addrs.is_empty() {
             let mut failures = self.failure_counts.lock().unwrap();
@@ -239,7 +239,7 @@ impl PeerRegistry {
             return Some(id);
         }
 
-        // Otherwise it's an unresolved bootstrap — drop it silently and
+        // Otherwise it's an unresolved bootstrap , drop it silently and
         // forget any delta watermark we held for it.
         self.bootstraps.lock().unwrap().remove(&addr);
         self.last_sent.lock().unwrap().remove(&addr);
@@ -297,9 +297,9 @@ impl PeerRegistry {
 ///
 /// # State contract
 ///
-/// * `local` — the engine reads the current local state from this `watch`
+/// * `local` , the engine reads the current local state from this `watch`
 ///   each time it gossips.
-/// * `merged` — every time the engine receives a remote `Sync` and merges it
+/// * `merged` , every time the engine receives a remote `Sync` and merges it
 ///   into the local snapshot, the resulting value is published on this
 ///   broadcast.
 ///
@@ -424,8 +424,8 @@ impl GossipEngine {
     /// Notify peers that this node is leaving and stop the background tasks.
     ///
     /// Sends a `Goodbye` message (with this node's UUID in `departed`) to
-    /// up to [`GOODBYE_FANOUT`] random peers in parallel, each with a
-    /// [`GOODBYE_TIMEOUT`] connect/write deadline. Then triggers the
+    /// up to `GOODBYE_FANOUT` random peers in parallel, each with a
+    /// `GOODBYE_TIMEOUT` connect/write deadline. Then triggers the
     /// engine's tasks to exit.
     pub async fn graceful_shutdown(&self) {
         let (targets, known_peers, mut departed) = self.registry.gossip_snapshot();
@@ -491,7 +491,7 @@ fn spawn_listener<T>(
                         Ok((stream, peer)) => {
                             // Bound the number of concurrently-handled
                             // connections. Dropping over-cap connections
-                            // immediately is correct gossip behaviour —
+                            // immediately is correct gossip behaviour ,
                             // the sender will retry next tick.
                             let Ok(permit) = Arc::clone(&semaphore).try_acquire_owned() else {
                                 warn!(%peer, "dropping connection: at MAX_CONCURRENT_CONNECTIONS ({})", MAX_CONCURRENT_CONNECTIONS);
@@ -563,7 +563,7 @@ async fn handle_connection<T>(
         })) => {
             // Decode the sender's baseline first. If our local state is
             // not at least as advanced as that baseline, the delta was
-            // computed against state we never had — applying it would
+            // computed against state we never had , applying it would
             // silently miss intervening updates. Drop and wait for the
             // sender's next periodic full `Sync` to catch us up.
             let typed_since: T::Version = match serde_json::from_value(since) {
@@ -578,12 +578,12 @@ async fn handle_connection<T>(
                 trace!(
                     %peer,
                     sender = %from.node_id,
-                    "dropping SyncDelta — local state behind sender's baseline, waiting for full Sync"
+                    "dropping SyncDelta , local state behind sender's baseline, waiting for full Sync"
                 );
                 return;
             }
             // Decode the typed delta. A type mismatch surfaces as a
-            // decode error and we drop the frame — the sender's next
+            // decode error and we drop the frame , the sender's next
             // tick falls back to a full `Sync` automatically once the
             // peer is re-resolved.
             let typed_delta: T::Delta = match serde_json::from_value(delta) {
@@ -660,7 +660,7 @@ fn spawn_ticker<T>(
 
                         // Decide per-peer: full `Sync` on first contact,
                         // `SyncDelta` thereafter. We do NOT short-circuit
-                        // on `is_empty_delta` — even when the CRDT state
+                        // on `is_empty_delta` , even when the CRDT state
                         // hasn't moved, each tick still carries the
                         // current `known_peers` and `departed` lists,
                         // which is how tombstones propagate through the
@@ -673,7 +673,7 @@ fn spawn_ticker<T>(
                             // Ship the *receiver's prior baseline* (`prev`)
                             // as `since`. The receiver uses this to verify
                             // its local state already includes the
-                            // baseline before applying the delta — if not,
+                            // baseline before applying the delta , if not,
                             // it drops the frame and waits for a full
                             // `Sync`. Shipping `current_version` here
                             // (sender's new state) would always fail that
@@ -693,7 +693,7 @@ fn spawn_ticker<T>(
                         // is known to have absorbed." Recording too low
                         // is corrected on the next tick (the next
                         // delta covers the gap); recording too high
-                        // would be the bug — the receiver's
+                        // would be the bug , the receiver's
                         // `version_includes` check drops frames whose
                         // `since` baseline we never had.
                         let next_version = current_version.clone();

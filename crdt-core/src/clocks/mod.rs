@@ -53,7 +53,7 @@ impl VectorClock {
         *self.clock.get(node).unwrap_or(&0)
     }
 
-    /// Returns `max` over all components — used as a Lamport timestamp for
+    /// Returns `max` over all components , used as a Lamport timestamp for
     /// [`super::registers::LWWRegister`] tie-breaking.
     pub fn lamport_timestamp(&self) -> u64 {
         self.clock.values().copied().max().unwrap_or(0)

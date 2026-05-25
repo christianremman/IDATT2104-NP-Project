@@ -203,7 +203,7 @@ address cannot be parsed as a `SocketAddr`.
 
 ### `GET /api/leaderboard`
 
-Returns pixel ownership counts — how many pixels each peer currently
+Returns pixel ownership counts , how many pixels each peer currently
 "owns" (is the last writer of).
 
 **Response** `200 OK`

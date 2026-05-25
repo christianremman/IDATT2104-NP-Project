@@ -223,7 +223,7 @@ the whole mesh.
  
 | Crate | Purpose |
 |---|---|
-| `tokio` | Async runtime — TCP, timers, task spawning |
+| `tokio` | Async runtime. TCP, timers, task spawning |
 | `serde` / `serde_json` | Wire format: length-prefixed JSON frames |
 | `uuid` | Peer identity |
 | `tracing` | Structured logging |
@@ -387,3 +387,10 @@ with examples.
 | `DELETE` | `/api/palette` | Remove a palette color |
 | `POST` | `/api/peers` | Add a bootstrap peer |
 | `GET` | `/api/leaderboard` | Pixel ownership ranking |
+
+## Documentation
+
+```bash
+# Build and open in browser
+cargo doc --workspace --open
+```

@@ -172,7 +172,7 @@ async fn consecutive_failures_evict_unreachable_bootstrap() {
     // happen. At 30ms intervals with near-instant RST from a closed port,
     // that's well under a second of real time; we add headroom so CI noise
     // doesn't make it flaky. After the threshold the bootstrap is silently
-    // dropped — the registry doesn't expose the bootstrap set externally,
+    // dropped , the registry doesn't expose the bootstrap set externally,
     // so the assertion is indirect: we verify the engine is still healthy
     // and can still discover a real peer added afterwards.
     sleep(Duration::from_millis(500)).await;
@@ -200,7 +200,7 @@ async fn tombstone_propagates_transitively_via_known_peers_in_sync() {
     let b = Node::start(interval).await;
     let c = Node::start(interval).await;
 
-    // A — B — C topology. A and C don't talk directly; they learn about
+    // A , B , C topology. A and C don't talk directly; they learn about
     // each other only via B's known_peers gossip. (This is the same
     // topology as the discovery-test `peer_list_propagates_transitively`.)
     a.engine.add_peer(b.id, b.engine.local_addr());

@@ -68,7 +68,7 @@ struct Args {
     /// Comma-separated addresses of other nodes' gossip ports to
     /// connect to on startup. Format: IP:GOSSIP_PORT.
     /// Not needed on the same LAN (mDNS handles discovery).
-    /// One address is enough — peer-list gossip discovers the rest.
+    /// One address is enough , peer-list gossip discovers the rest.
     ///
     /// Example: --peers 192.168.1.10:9090,192.168.1.11:9091
     #[arg(long, default_value = "")]

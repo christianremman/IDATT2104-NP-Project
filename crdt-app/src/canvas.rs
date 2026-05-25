@@ -18,11 +18,11 @@
 //!
 //! 2. **Causality tracking.** After two documents merge, their clocks
 //!    merge (element-wise max), so each peer knows what the other has
-//!    seen. This is what makes the Lamport timestamps safe — without
+//!    seen. This is what makes the Lamport timestamps safe. Without
 //!    merge, a peer could fall behind and generate losing timestamps
 //!    indefinitely.
 //!
-//! Mutations that don't need an LWW timestamp (e.g. [`add_user`],
+//! Mutations that don't need an LWW timestamp (e.g. [`CanvasDocument::add_user`],
 //! which goes through [`ORSet`] with its own internal tagging) still
 //! increment the clock for document-level causality, so a peer can
 //! tell whether it has seen a particular mutation. This is handled with
@@ -230,7 +230,7 @@ impl CanvasDocument {
 impl Crdt for CanvasDocument {
     type Value = Self;
 
-    /// The document is its own value — clones the full state.
+    /// The document is its own value , clones the full state.
     fn value(&self) -> Self {
         self.clone()
     }
@@ -238,9 +238,9 @@ impl Crdt for CanvasDocument {
     /// Merge `other` into `self` using each field's own CRDT merge rule.
     ///
     /// - Clock: element-wise max (Lamport rule per node).
-    /// - Pixels / cursors: LWW — higher timestamp wins per coordinate.
-    /// - Users / palette: ORSet — add-wins on concurrent add/remove.
-    /// - Paint counts: GCounter — per-node max.
+    /// - Pixels / cursors: LWW , higher timestamp wins per coordinate.
+    /// - Users / palette: ORSet , add-wins on concurrent add/remove.
+    /// - Paint counts: GCounter , per-node max.
     fn merge(&mut self, other: Self) {
         self.clock.merge(other.clock);
 
@@ -314,7 +314,7 @@ mod pixel_vec_serde {
 
 /// Delta payload for a [`CanvasDocument`].
 ///
-/// Each field carries the corresponding CRDT's delta — empty / `None`
+/// Each field carries the corresponding CRDT's delta , empty / `None`
 /// when nothing changed there. The receiver applies a `CanvasDelta` via
 /// [`CanvasDocument::merge_delta`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -353,7 +353,7 @@ impl DeltaCrdt for CanvasDocument {
     ///
     /// Each field filters independently against the same [`VectorClock`]
     /// frontier. This works because ORSet tag sequences are sourced from
-    /// the document clock — one version covers all fields.
+    /// the document clock , one version covers all fields.
     fn delta_since(&self, since: &Self::Version) -> Self::Delta {
         let pixels: Vec<(PixelCoord, LWWRegister<Rgba>)> = self
             .pixels
@@ -426,7 +426,7 @@ impl DeltaCrdt for CanvasDocument {
             && ORSet::<Rgba>::is_empty_delta(&delta.palette)
     }
 
-    /// Returns `true` when `current` causally dominates `other` — i.e., `current`
+    /// Returns `true` when `current` causally dominates `other` , i.e., `current`
     /// has observed everything `other` has, so it is safe to apply a delta computed
     /// against `other` as a baseline without gaps.
     fn version_includes(current: &Self::Version, other: &Self::Version) -> bool {
@@ -541,7 +541,7 @@ impl CanvasDeltaView {
 
         // Always ship active_peers. ORSet tombstones carry the original add-seq, so
         // `is_empty_delta` is always true for removals that the receiver has already
-        // seen the add for — the ORSet delta cannot signal departures reliably.
+        // seen the add for , the ORSet delta cannot signal departures reliably.
         let active_peers = {
             let mut peers: Vec<String> = doc.active_users().iter().map(|u| u.to_string()).collect();
             peers.sort();
@@ -821,7 +821,7 @@ mod tests {
         a.remove_palette_color(&(1, 2, 3, 4), node(1));
 
         // Re-querying at the post-removal version must produce an empty
-        // delta — nothing has happened since.
+        // delta , nothing has happened since.
         let delta = a.delta_since(&a.version());
         assert!(
             CanvasDocument::is_empty_delta(&delta),
@@ -898,19 +898,19 @@ mod tests {
         let mut a = CanvasDocument::new();
         let mut b = CanvasDocument::new();
 
-        // Initial paint — bring B in sync with A.
+        // Initial paint , bring B in sync with A.
         a.paint(0, 0, (1, 2, 3, 4), node(1));
         b.merge(a.clone());
 
         // Non-paint mutation: clock advances, GCounter stays.
         a.update_cursor(Uuid::from_u128(1), 5, 5, node(1));
 
-        // Gossip tick — B absorbs cursor, last_sent_version advances to post-cursor clock.
+        // Gossip tick , B absorbs cursor, last_sent_version advances to post-cursor clock.
         let delta_cursor = a.delta_since(&b.version());
         b.merge_delta(delta_cursor);
         let b_version = b.version(); // baseline for the next SyncDelta
 
-        // A paints — GCounter goes from 1 to 2, clock goes from 2 to 3.
+        // A paints , GCounter goes from 1 to 2, clock goes from 2 to 3.
         a.paint(1, 1, (5, 6, 7, 8), node(1));
 
         // SyncDelta with the post-cursor baseline: or_set_version[A]=2, GCounter[A]=2 → 2>2 = false.

@@ -1,6 +1,6 @@
 //! Tests for transitive peer-list propagation.
 //!
-//! mDNS itself is not tested here — multicast inside the CI / loopback
+//! mDNS itself is not tested here , multicast inside the CI / loopback
 //! environment is restricted and flaky. We disable mDNS (`with_mdns(false)`)
 //! so these tests exercise only the peer-list-in-Sync mechanism: a node
 //! that knows peer B should learn about C from B's gossip.
@@ -69,7 +69,7 @@ async fn wait_for_peers(engine: &GossipEngine, n: usize, deadline: Duration) -> 
 
 #[tokio::test]
 async fn peer_list_propagates_transitively() {
-    // Topology: A — B — C. A only knows B; C only knows B. After enough
+    // Topology: A , B , C. A only knows B; C only knows B. After enough
     // ticks for B to gossip its known_peers to both, A and C should
     // discover each other.
     let interval = Duration::from_millis(60);

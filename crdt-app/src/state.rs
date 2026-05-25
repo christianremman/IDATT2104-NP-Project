@@ -2,8 +2,8 @@
 //!
 //! [`AppState`] sits between the network layer (`crdt-net`) and the API
 //! layer (`api.rs`). It holds the canvas document and this node's
-//! identity. Every mutation — whether from a local browser or a remote
-//! gossip merge — flows through here.
+//! identity. Every mutation , whether from a local browser or a remote
+//! gossip merge , flows through here.
 //!
 //! **Timestamps**
 //!
@@ -28,7 +28,7 @@
 //! - The closure runs to completion without yielding, so there is no
 //!   risk of holding a lock across an await point.
 //! - When we add delta support, the same closure can mutate the document
-//!   and compute the diff in one atomic step — no gap where another
+//!   and compute the diff in one atomic step , no gap where another
 //!   write could sneak in.
 //!
 //! The tradeoff is that the closure blocks a tokio worker thread for its
@@ -44,7 +44,7 @@ use uuid::Uuid;
 /// Shared application state, wrapped in `Arc` and passed to all tasks.
 ///
 /// Only three fields: the node's identity, the canvas channel, and gossip engine.
-///  The document's internal [`VectorClock`] handles all timestamp concerns,
+///  The document's internal [`VectorClock`](crdt_core::clocks::VectorClock) handles all timestamp concerns,
 /// it increments on local mutations, and merges automatically when
 /// remote state arrives via gossip.
 ///
@@ -64,7 +64,7 @@ pub struct AppState {
     canvas: watch::Sender<CanvasDocument>,
     /// Gossip engine handle, wired in after construction via `set_engine`.
     /// `OnceLock` because the engine needs the `watch::Receiver` that `new`
-    /// produces — the chicken-and-egg is resolved by initializing exactly once
+    /// produces , the chicken-and-egg is resolved by initializing exactly once
     /// with no runtime locking cost after startup.
     engine: OnceLock<Arc<GossipEngine>>,
 }

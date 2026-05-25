@@ -105,7 +105,7 @@ pub trait DeltaCrdt: Crdt {
     /// True when a replica at `current` already knows everything a peer at
     /// `other` did. The network layer uses this on receiving a `SyncDelta`
     /// to detect when the sender's baseline (`since`) is no longer
-    /// dominated by the receiver's state — in that case the delta must be
+    /// dominated by the receiver's state , in that case the delta must be
     /// dropped, and the sender's next periodic full `Sync` allowed to
     /// catch the receiver up. Without this check, a peer whose state has
     /// regressed (restart without graceful `Goodbye`, manual reset) would

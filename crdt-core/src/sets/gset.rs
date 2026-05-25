@@ -1,7 +1,7 @@
 //! Grow-only Set (GSet) CRDT.
 //!
 //! The simplest set CRDT. Elements can be added but never removed.
-//! Merge is set union. Serves as a building block for [`TwoPSet`].
+//! Merge is set union. Serves as a building block for [`TwoPSet`](super::TwoPSet).
 use std::collections::HashSet;
 use std::hash::Hash;
 

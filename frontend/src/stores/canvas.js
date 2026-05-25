@@ -5,7 +5,7 @@
 // and palette management.
 import { defineStore } from 'pinia'
 
-// WebSocket instance lives outside Pinia state — Vue's Proxy wrapping breaks
+// WebSocket instance lives outside Pinia state , Vue's Proxy wrapping breaks
 // the WebSocket internal `this instanceof WebSocket` checks.
 let _ws = null
 // Base URL for API and WS calls. Empty string = relative (embedded mode).
@@ -20,7 +20,7 @@ sessionStorage.setItem('canvas-client-id', _storedClientId)
 export const useCanvasStore = defineStore('canvas', {
   state: () => ({
     pixels: new Map(),          // "x,y" → [r,g,b,a]
-    palette: new Set(),         // JSON.stringify([r,g,b,a]) strings — value equality
+    palette: new Set(),         // JSON.stringify([r,g,b,a]) strings , value equality
     cursors: new Map(),         // userId → { x, y }
     activePeers: new Set(),     // uuid strings
     paintTotal: 0,
@@ -78,7 +78,7 @@ export const useCanvasStore = defineStore('canvas', {
         } else if (msg.type === 'delta') {
           this._applyDelta(data)
         } else {
-          // Unknown type: don't silently apply as a snapshot — that
+          // Unknown type: don't silently apply as a snapshot , that
           // masked decode errors and stale frames in earlier versions.
           console.warn('[canvas] dropped WS message with unknown type:', msg.type)
         }
@@ -119,7 +119,7 @@ export const useCanvasStore = defineStore('canvas', {
     //
     // `pixels` carries only the cells that changed and is patched into
     // the existing Map (no clear). The other fields are present only
-    // when their underlying CRDT changed — when present, replace the
+    // when their underlying CRDT changed , when present, replace the
     // whole collection (the backend ships the full derived view for
     // these to keep the projection simple).
     _applyDelta(data) {

@@ -21,7 +21,7 @@ pub struct GossipConfig {
     pub gossip_addr: SocketAddr,
     /// Address others should use to reach this node (what we put in `from.addr`
     /// of outgoing `Sync` messages and announce over mDNS). If `None`, derived
-    /// from `gossip_addr` at engine startup — when `gossip_addr` is a wildcard
+    /// from `gossip_addr` at engine startup , when `gossip_addr` is a wildcard
     /// (`0.0.0.0`/`::`) the engine falls back to the first non-loopback local
     /// IPv4.
     pub advertise_addr: Option<SocketAddr>,
